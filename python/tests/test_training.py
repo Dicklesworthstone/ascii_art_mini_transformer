@@ -725,6 +725,50 @@ class TestTrainCliParsing:
         assert config.eval_iters == 7
         assert config.log_interval == 11
 
+    def test_preset_small_sets_model_hyperparams(self, tmp_path: Path) -> None:
+        ckpt_dir = tmp_path / "checkpoints"
+        config = parse_cli_config(
+            [
+                "--checkpoint-dir",
+                str(ckpt_dir),
+                "--device",
+                "cpu",
+                "--dtype",
+                "float32",
+                "--preset",
+                "small",
+            ]
+        )
+
+        assert config.n_layer == 4
+        assert config.n_head == 4
+        assert config.n_embd == 256
+        assert config.block_size == 1024
+
+    def test_preset_allows_overrides(self, tmp_path: Path) -> None:
+        ckpt_dir = tmp_path / "checkpoints"
+        config = parse_cli_config(
+            [
+                "--checkpoint-dir",
+                str(ckpt_dir),
+                "--device",
+                "cpu",
+                "--dtype",
+                "float32",
+                "--preset",
+                "small",
+                "--n-layer",
+                "2",
+                "--block-size",
+                "128",
+            ]
+        )
+
+        assert config.n_layer == 2
+        assert config.n_head == 4
+        assert config.n_embd == 256
+        assert config.block_size == 128
+
 
 class TestLearningRateSchedule:
     """Tests for learning rate scheduling."""

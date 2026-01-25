@@ -511,13 +511,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Data args
     parser.add_argument("--db-path", type=str, default="data/ascii_art.db")
-    parser.add_argument("--block-size", type=int, default=2048)
+    parser.add_argument("--block-size", type=int, default=None)
     parser.add_argument("--val-split", type=float, default=0.1)
 
     # Model args
-    parser.add_argument("--n-layer", type=int, default=6)
-    parser.add_argument("--n-head", type=int, default=6)
-    parser.add_argument("--n-embd", type=int, default=384)
+    parser.add_argument(
+        "--preset",
+        type=str,
+        default="medium",
+        choices=["small", "medium", "large"],
+        help="Model size preset (sets n_layer/n_head/n_embd/block_size defaults)",
+    )
+    parser.add_argument("--n-layer", type=int, default=None)
+    parser.add_argument("--n-head", type=int, default=None)
+    parser.add_argument("--n-embd", type=int, default=None)
     parser.add_argument("--dropout", type=float, default=0.1)
 
     # Training args
@@ -554,13 +561,28 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def config_from_args(args: argparse.Namespace) -> TrainingConfig:
     """Create a TrainingConfig from parsed CLI args."""
+    from model.transformer import get_large_config, get_medium_config, get_small_config
+
+    presets = {
+        "small": get_small_config,
+        "medium": get_medium_config,
+        "large": get_large_config,
+    }
+    model_config = presets[args.preset]()
+    block_size = (
+        args.block_size if args.block_size is not None else model_config.block_size
+    )
+    n_layer = args.n_layer if args.n_layer is not None else model_config.n_layer
+    n_head = args.n_head if args.n_head is not None else model_config.n_head
+    n_embd = args.n_embd if args.n_embd is not None else model_config.n_embd
+
     return TrainingConfig(
         db_path=args.db_path,
-        block_size=args.block_size,
+        block_size=block_size,
         val_split=args.val_split,
-        n_layer=args.n_layer,
-        n_head=args.n_head,
-        n_embd=args.n_embd,
+        n_layer=n_layer,
+        n_head=n_head,
+        n_embd=n_embd,
         dropout=args.dropout,
         batch_size=args.batch_size,
         gradient_accumulation_steps=args.gradient_accumulation_steps,
