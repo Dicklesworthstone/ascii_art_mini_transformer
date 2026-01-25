@@ -601,6 +601,35 @@ class TestEdgeCases:
 
         assert len(dataset) == 0, "Empty database should give empty dataset"
 
+    def test_missing_charset_column_falls_back(
+        self, tmp_path: Path, tokenizer: AsciiTokenizer
+    ):
+        """Dataset should tolerate older DBs that lack a `charset` column."""
+        db_path = tmp_path / "no_charset.db"
+        conn = sqlite3.connect(db_path)
+        conn.executescript("""
+            CREATE TABLE ascii_art (
+                id INTEGER PRIMARY KEY,
+                raw_text TEXT NOT NULL,
+                width INTEGER NOT NULL,
+                height INTEGER NOT NULL,
+                total_chars INTEGER NOT NULL,
+                is_valid INTEGER NOT NULL,
+                description TEXT,
+                category TEXT
+            );
+            INSERT INTO ascii_art (id, raw_text, width, height, total_chars, is_valid, description, category)
+            VALUES (1, 'X\\nY', 1, 2, 3, 1, 'test', 'art');
+        """)
+        conn.close()
+
+        config = DataConfig(db_path=str(db_path), min_chars=1, charset="ascii")
+        dataset = AsciiArtDataset(db_path, tokenizer, config)
+
+        assert len(dataset) == 1
+        item = dataset[0]
+        assert item["input_ids"].ndim == 1
+
     def test_invalid_index(self, temp_db: Path, tokenizer: AsciiTokenizer):
         """Test that invalid index raises appropriate error."""
         config = DataConfig(db_path=str(temp_db), min_chars=1)

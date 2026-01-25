@@ -51,6 +51,7 @@ class DataConfig:
     augment: bool = False
     augment_prob: float = 0.5
 
+
 def _compute_width_height(raw_text: str) -> tuple[int, int]:
     lines = raw_text.split("\n")
     if raw_text.endswith("\n") and lines and lines[-1] == "":
@@ -93,30 +94,36 @@ class AsciiArtDataset(Dataset):
 
     def _load_valid_ids(self) -> list[int]:
         """Load IDs of valid art pieces that fit within block_size."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            cursor = conn.execute(
-                """
-                SELECT id FROM ascii_art
-                WHERE is_valid = 1
-                AND charset = ?
-                AND total_chars >= ?
-                AND total_chars <= ?
-            """,
-                (
-                    self.config.charset,
-                    self.config.min_chars,
-                    self.config.max_chars,
-                ),
-            )
-            ids = [row[0] for row in cursor.fetchall()]
-        finally:
-            conn.close()
+        max_chars = self.config.max_chars
+        if max_chars is None:  # pragma: no cover
+            raise ValueError("config.max_chars must be set before loading IDs")
 
-        if not ids:
-            # Fallback: try without charset filter (some DBs might not have charset)
-            conn = sqlite3.connect(self.db_path)
-            try:
+        def has_column(conn: sqlite3.Connection, *, table: str, column: str) -> bool:
+            cursor = conn.execute(f"PRAGMA table_info({table})")
+            names = {str(row[1]).lower() for row in cursor.fetchall()}
+            return column.lower() in names
+
+        with sqlite3.connect(self.db_path) as conn:
+            # Prefer charset filter when supported, but tolerate older schemas that lack it.
+            ids: list[int] = []
+            if has_column(conn, table="ascii_art", column="charset"):
+                cursor = conn.execute(
+                    """
+                    SELECT id FROM ascii_art
+                    WHERE is_valid = 1
+                    AND charset = ?
+                    AND total_chars >= ?
+                    AND total_chars <= ?
+                """,
+                    (
+                        self.config.charset,
+                        self.config.min_chars,
+                        max_chars,
+                    ),
+                )
+                ids = [row[0] for row in cursor.fetchall()]
+
+            if not ids:
                 cursor = conn.execute(
                     """
                     SELECT id FROM ascii_art
@@ -126,14 +133,12 @@ class AsciiArtDataset(Dataset):
                 """,
                     (
                         self.config.min_chars,
-                        self.config.max_chars,
+                        max_chars,
                     ),
                 )
                 ids = [row[0] for row in cursor.fetchall()]
-            finally:
-                conn.close()
 
-        return ids
+            return ids
 
     def __len__(self) -> int:
         return len(self.ids)
@@ -318,7 +323,9 @@ class AugmentedAsciiArtDataset(Dataset):
             description = category if category else "ASCII art"
 
         # Apply augmentation
-        augmented_art, augmented_desc = augment_art(raw_text, description, self.augmentation_config)
+        augmented_art, augmented_desc = augment_art(
+            raw_text, description, self.augmentation_config
+        )
         if not validate_augmented_art(raw_text, augmented_art):
             return self.base_dataset[idx]
 
@@ -457,6 +464,7 @@ def create_dataloaders(
     Returns:
         Tuple of (train_loader, val_loader)
     """
+
     def seed_worker(worker_id: int) -> None:
         worker_seed = seed + worker_id
         random.seed(worker_seed)
