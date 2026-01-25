@@ -689,18 +689,30 @@ class TestTrainingConfig:
 class TestTrainCliParsing:
     def test_parse_cli_config_sets_hyperparams(self, tmp_path: Path) -> None:
         ckpt_dir = tmp_path / "checkpoints"
-        config = parse_cli_config([
-            "--checkpoint-dir", str(ckpt_dir),
-            "--device", "cpu",
-            "--dtype", "float32",
-            "--val-split", "0.25",
-            "--lr-decay-iters", "123",
-            "--min-lr", "0.00012",
-            "--weight-decay", "0.2",
-            "--grad-clip", "0.9",
-            "--eval-iters", "7",
-            "--log-interval", "11",
-        ])
+        config = parse_cli_config(
+            [
+                "--checkpoint-dir",
+                str(ckpt_dir),
+                "--device",
+                "cpu",
+                "--dtype",
+                "float32",
+                "--val-split",
+                "0.25",
+                "--lr-decay-iters",
+                "123",
+                "--min-lr",
+                "0.00012",
+                "--weight-decay",
+                "0.2",
+                "--grad-clip",
+                "0.9",
+                "--eval-iters",
+                "7",
+                "--log-interval",
+                "11",
+            ]
+        )
 
         assert config.checkpoint_dir == str(ckpt_dir)
         assert config.device == "cpu"
