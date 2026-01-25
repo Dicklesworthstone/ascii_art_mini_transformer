@@ -1,8 +1,8 @@
 """
 Unit tests for the training data pipeline.
 
-Tests the AsciiArtDataset, collate function, and DataLoader creation.
-Training loop tests will be added when the training script is implemented.
+Covers the AsciiArtDataset, collate function, DataLoader creation, and
+training/checkpointing smoke tests.
 """
 
 from __future__ import annotations
@@ -272,6 +272,42 @@ def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) ->
 
     with pytest.raises(ValueError, match=r"0 batches"):
         run_training(config)
+
+
+def test_training_allows_zero_intervals(temp_db: Path, tmp_path: Path) -> None:
+    """
+    Regression test: interval flags set to 0 should disable their behavior (no modulo by 0).
+
+    This intentionally runs a tiny 1-iter train loop on CPU to ensure we don't crash when
+    users set `--log-interval 0`, `--eval-interval 0`, or `--save-interval 0`.
+    """
+    ckpt_dir = tmp_path / "checkpoints"
+    config = TrainingConfig(
+        db_path=str(temp_db),
+        checkpoint_dir=str(ckpt_dir),
+        device="cpu",
+        dtype="float32",
+        block_size=128,
+        n_layer=1,
+        n_head=1,
+        n_embd=32,
+        dropout=0.0,
+        batch_size=1,
+        gradient_accumulation_steps=1,
+        learning_rate=0.001,
+        warmup_iters=0,
+        lr_decay_iters=0,
+        max_iters=1,
+        log_interval=0,
+        eval_interval=0,
+        save_interval=0,
+        eval_iters=0,
+        val_split=0.2,
+        num_workers=0,
+    )
+
+    run_training(config)
+    assert (ckpt_dir / "final.pt").exists(), "final checkpoint should be saved"
 
 
 class TestCollateFn:
@@ -739,6 +775,17 @@ class TestTrainCliParsing:
 class TestLearningRateSchedule:
     """Tests for learning rate scheduling."""
 
+    def test_warmup_can_be_zero(self):
+        """warmup_iters=0 should behave as 'no warmup' (and not divide by zero)."""
+        config = TrainingConfig(
+            learning_rate=6e-4,
+            min_lr=6e-5,
+            warmup_iters=0,
+            lr_decay_iters=100,
+        )
+        lr_0 = get_lr(0, config)
+        assert lr_0 == pytest.approx(config.learning_rate)
+
     def test_warmup_starts_at_zero(self):
         """LR should start at 0 during warmup."""
         config = TrainingConfig(
@@ -800,6 +847,41 @@ class TestLearningRateSchedule:
 
         lr_after_decay = get_lr(2000, config)  # Well after decay
         assert lr_after_decay == config.min_lr, "LR should stay at min after decay"
+
+    def test_warmup_iters_zero_skips_warmup(self):
+        """warmup_iters=0 should start at full learning rate (no warmup)."""
+        config = TrainingConfig(
+            learning_rate=6e-4,
+            min_lr=6e-5,
+            warmup_iters=0,
+            lr_decay_iters=1000,
+        )
+
+        # At iter 0, should be at full learning rate (not 0, no division by zero)
+        lr_0 = get_lr(0, config)
+        assert lr_0 == pytest.approx(6e-4), (
+            "LR at iter 0 should be full learning rate when warmup_iters=0"
+        )
+
+        # At iter 1, should still be near full learning rate (cosine decay just started)
+        lr_1 = get_lr(1, config)
+        assert lr_1 > 0, "LR should be positive"
+        assert lr_1 <= config.learning_rate, "LR should not exceed max"
+
+    def test_decay_range_zero_returns_learning_rate(self):
+        """When lr_decay_iters == warmup_iters, should return learning_rate."""
+        config = TrainingConfig(
+            learning_rate=6e-4,
+            min_lr=6e-5,
+            warmup_iters=100,
+            lr_decay_iters=100,  # Same as warmup_iters
+        )
+
+        # At warmup end (decay_range = 0), should return learning_rate
+        lr = get_lr(100, config)
+        assert lr == pytest.approx(6e-4), (
+            "Should return learning_rate when decay_range=0"
+        )
 
 
 class TestCheckpointing:
@@ -993,6 +1075,70 @@ class TestDeviceTypeConversion:
     def test_cuda_index_normalizes_to_cuda(self):
         # AMP autocast expects "cuda", not "cuda:0".
         assert _get_device_type("cuda:0") == "cuda"
+
+
+class TestZeroIntervalEdgeCases:
+    """Tests for handling interval=0 edge cases (disable features instead of crash)."""
+
+    def test_zero_log_interval_no_crash(self, temp_db: Path, tmp_path: Path):
+        """log_interval=0 should disable logging, not cause ZeroDivisionError."""
+        config = TrainingConfig(
+            db_path=str(temp_db),
+            checkpoint_dir=str(tmp_path / "checkpoints"),
+            device="cpu",
+            dtype="float32",
+            batch_size=2,
+            gradient_accumulation_steps=1,
+            max_iters=2,  # Very short run
+            val_split=0.2,
+            num_workers=0,
+            log_interval=0,  # Disable logging
+            eval_interval=0,  # Disable eval too
+            save_interval=0,  # Disable saves
+        )
+
+        # Should not raise ZeroDivisionError
+        run_training(config)
+
+    def test_zero_eval_interval_no_crash(self, temp_db: Path, tmp_path: Path):
+        """eval_interval=0 should disable evaluation, not cause ZeroDivisionError."""
+        config = TrainingConfig(
+            db_path=str(temp_db),
+            checkpoint_dir=str(tmp_path / "checkpoints"),
+            device="cpu",
+            dtype="float32",
+            batch_size=2,
+            gradient_accumulation_steps=1,
+            max_iters=2,
+            val_split=0.2,
+            num_workers=0,
+            log_interval=1,
+            eval_interval=0,  # Disable evaluation
+            save_interval=0,
+        )
+
+        # Should not raise ZeroDivisionError
+        run_training(config)
+
+    def test_zero_save_interval_no_crash(self, temp_db: Path, tmp_path: Path):
+        """save_interval=0 should disable periodic saves, not cause ZeroDivisionError."""
+        config = TrainingConfig(
+            db_path=str(temp_db),
+            checkpoint_dir=str(tmp_path / "checkpoints"),
+            device="cpu",
+            dtype="float32",
+            batch_size=2,
+            gradient_accumulation_steps=1,
+            max_iters=2,
+            val_split=0.2,
+            num_workers=0,
+            log_interval=1,
+            eval_interval=1,
+            save_interval=0,  # Disable periodic saves
+        )
+
+        # Should not raise ZeroDivisionError
+        run_training(config)
 
 
 if __name__ == "__main__":

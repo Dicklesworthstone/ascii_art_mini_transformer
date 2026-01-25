@@ -120,8 +120,8 @@ def get_lr(iter_num: int, config: TrainingConfig) -> float:
     Returns:
         Learning rate for this iteration
     """
-    # Linear warmup
-    if iter_num < config.warmup_iters:
+    # Linear warmup (optional). Treat warmup_iters=0 as "no warmup".
+    if config.warmup_iters > 0 and iter_num < config.warmup_iters:
         return config.learning_rate * iter_num / config.warmup_iters
 
     # After decay, use minimum
@@ -129,9 +129,12 @@ def get_lr(iter_num: int, config: TrainingConfig) -> float:
         return config.min_lr
 
     # Cosine decay between warmup and decay iters
-    decay_ratio = (iter_num - config.warmup_iters) / (
-        config.lr_decay_iters - config.warmup_iters
-    )
+    decay_range = config.lr_decay_iters - config.warmup_iters
+    if decay_range <= 0:
+        # No decay range: just return learning_rate (or min_lr if past decay point)
+        return config.learning_rate
+
+    decay_ratio = (iter_num - config.warmup_iters) / decay_range
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     return config.min_lr + coeff * (config.learning_rate - config.min_lr)
 
@@ -246,8 +249,21 @@ def load_checkpoint(
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to(device)
 
-    iter_num = checkpoint.get("iter_num", 0)
-    best_val_loss = checkpoint.get("best_val_loss", float("inf"))
+    iter_num = checkpoint.get("iter_num")
+    if iter_num is None:
+        iter_num = 0
+    elif isinstance(iter_num, torch.Tensor):
+        iter_num = int(iter_num.item())
+    else:
+        iter_num = int(iter_num)
+
+    best_val_loss = checkpoint.get("best_val_loss")
+    if best_val_loss is None:
+        best_val_loss = float("inf")
+    elif isinstance(best_val_loss, torch.Tensor):
+        best_val_loss = float(best_val_loss.item())
+    else:
+        best_val_loss = float(best_val_loss)
     print(f"Loaded checkpoint from {path} at iter {iter_num}")
     return iter_num, best_val_loss
 
@@ -451,7 +467,8 @@ def train(
             else:
                 loss.backward()
 
-            running_loss += loss.item()
+            if config.log_interval > 0:
+                running_loss += loss.item()
 
         # Gradient clipping
         if scaler is not None:
@@ -466,8 +483,8 @@ def train(
         else:
             optimizer.step()
 
-        # Logging
-        if iter_num % config.log_interval == 0:
+        # Logging (disabled if log_interval <= 0)
+        if config.log_interval > 0 and iter_num % config.log_interval == 0:
             t1 = time.time()
             dt = t1 - t0
             t0 = t1
@@ -480,8 +497,12 @@ def train(
                 f"lr {lr:.2e} | {dt * 1000:.1f}ms"
             )
 
-        # Evaluation
-        if iter_num > 0 and iter_num % config.eval_interval == 0:
+        # Evaluation (disabled if eval_interval <= 0)
+        if (
+            config.eval_interval > 0
+            and iter_num > 0
+            and iter_num % config.eval_interval == 0
+        ):
             val_loss = evaluate(model, val_loader, config)
             print(f">>> val loss: {val_loss:.4f}")
 
@@ -497,8 +518,12 @@ def train(
                     Path(config.checkpoint_dir) / "best.pt",
                 )
 
-        # Periodic checkpointing
-        if iter_num > 0 and iter_num % config.save_interval == 0:
+        # Periodic checkpointing (disabled if save_interval <= 0)
+        if (
+            config.save_interval > 0
+            and iter_num > 0
+            and iter_num % config.save_interval == 0
+        ):
             save_checkpoint(
                 model,
                 optimizer,
