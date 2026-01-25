@@ -1,0 +1,218 @@
+{
+  "schemes": {
+    "int8": {
+      "weights_file": "model_int8.safetensors",
+      "precision": "int8",
+      "format_version": 1,
+      "quantized_layers": {
+        "blocks.0.attn.c_attn.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            192,
+            64
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.0.attn.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            64,
+            64
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.0.mlp.c_fc.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            256,
+            64
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.0.mlp.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            64,
+            256
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.1.attn.c_attn.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            192,
+            64
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.1.attn.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            64,
+            64
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.1.mlp.c_fc.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            256,
+            64
+          ],
+          "int_data_dtype": "int8"
+        },
+        "blocks.1.mlp.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 8,
+          "orig_shape": [
+            64,
+            256
+          ],
+          "int_data_dtype": "int8"
+        }
+      }
+    },
+    "int4": {
+      "weights_file": "model_int4.safetensors",
+      "precision": "int4",
+      "format_version": 1,
+      "quantized_layers": {
+        "blocks.0.attn.c_attn.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            192,
+            64
+          ],
+          "packed_shape": [
+            192,
+            32
+          ],
+          "orig_in_features": 64,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.0.attn.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            64,
+            64
+          ],
+          "packed_shape": [
+            64,
+            32
+          ],
+          "orig_in_features": 64,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.0.mlp.c_fc.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            256,
+            64
+          ],
+          "packed_shape": [
+            256,
+            32
+          ],
+          "orig_in_features": 64,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.0.mlp.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            64,
+            256
+          ],
+          "packed_shape": [
+            64,
+            128
+          ],
+          "orig_in_features": 256,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.1.attn.c_attn.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            192,
+            64
+          ],
+          "packed_shape": [
+            192,
+            32
+          ],
+          "orig_in_features": 64,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.1.attn.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            64,
+            64
+          ],
+          "packed_shape": [
+            64,
+            32
+          ],
+          "orig_in_features": 64,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.1.mlp.c_fc.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            256,
+            64
+          ],
+          "packed_shape": [
+            256,
+            32
+          ],
+          "orig_in_features": 64,
+          "int_data_dtype": "uint8"
+        },
+        "blocks.1.mlp.c_proj.weight": {
+          "scheme": "symmetric_per_row",
+          "bits": 4,
+          "packed": true,
+          "pack_format": "u4u4_to_u8",
+          "orig_shape": [
+            64,
+            256
+          ],
+          "packed_shape": [
+            64,
+            128
+          ],
+          "orig_in_features": 256,
+          "int_data_dtype": "uint8"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,18 @@
+# Core (training)
+torch
+torchao
+datasets
+safetensors
+
+# Utilities
+numpy
+tqdm
+rich
+requests
+beautifulsoup4
+rapidfuzz  # For near-duplicate detection
+
+# Dev tooling (per AGENTS.md)
+pytest
+ruff
+mypy

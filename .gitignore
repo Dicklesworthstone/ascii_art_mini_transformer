@@ -1,0 +1,37 @@
+# bv (beads viewer) local config and caches
+.bv/
+
+# Python env/caches
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Rust build artifacts
+target/
+
+# Local datasets / artifacts
+data/*.db
+data/*.db-*
+data/*.sqlite
+data/*.sqlite-*
+data/*.sqlite3
+data/*.sqlite3-*
+data/*.jsonl
+data/*progress*.json
+data/figlet-fonts/
+data/raw/
+
+# Local model artifacts
+models/checkpoints/
+models/exported/
+
+# Generated run state / reports
+ingestion_progress.json
+quality_report.json
+python/data/data/
+
+# Logs
+*.log

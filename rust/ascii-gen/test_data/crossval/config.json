@@ -1,0 +1,15 @@
+{
+  "vocab_size": 107,
+  "block_size": 64,
+  "n_layer": 2,
+  "n_head": 2,
+  "n_embd": 64,
+  "dropout": 0.0,
+  "max_rows": 32,
+  "max_cols": 64,
+  "newline_token_id": 7,
+  "pad_token_id": 0,
+  "bos_token_id": 1,
+  "eos_token_id": 2,
+  "export_dtype": "float32"
+}
