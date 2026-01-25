@@ -113,7 +113,6 @@ def main() -> int:
     print("\n3. Generating greedy generation golden tests...")
 
     from python.inference.constraints import ConstrainedDecoder
-    from python.inference.sampler import sample_next_token
 
     greedy_golden = []
 

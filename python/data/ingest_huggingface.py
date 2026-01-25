@@ -21,7 +21,7 @@ import sqlite3
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, TypeVar
 
 import pyarrow as pa
 from datasets import load_dataset
@@ -40,6 +40,33 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
+
+
+def retry_on_lock(
+    func: Callable[[], T],
+    *,
+    max_retries: int = 5,
+    base_delay: float = 0.5,
+    max_delay: float = 30.0,
+) -> T:
+    """Retry SQLite operations with exponential backoff on lock errors."""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except sqlite3.OperationalError as exc:
+            if "locked" not in str(exc).lower() or attempt >= max_retries - 1:
+                raise
+            delay = min(base_delay * (2 ** attempt), max_delay)
+            logger.debug(
+                "SQLite locked; retrying in %.2fs (attempt %d/%d)",
+                delay,
+                attempt + 1,
+                max_retries,
+            )
+            time.sleep(delay)
+    raise RuntimeError("Retry logic error")
 
 
 @dataclass
@@ -582,6 +609,8 @@ def ingest_dataset(
     try:
         # Use explicit transactions for bulk ingestion (python/data/db.py uses autocommit).
         conn.execute("BEGIN")
+        # Give SQLite a chance to wait briefly on transient writer locks before raising.
+        retry_on_lock(lambda: conn.execute("PRAGMA busy_timeout = 5000;"))
 
         if dataset_name == "Csplk/THE.ASCII.ART.EMPORIUM":
             ds = load_dataset(dataset_name, config, split="train", streaming=True)
@@ -607,17 +636,19 @@ def ingest_dataset(
                     continue
 
                 try:
-                    row_id = insert_ascii_art(
-                        conn,
-                        raw_text=block_text,
-                        source=dataset_name,
-                        source_id=f"{file_path}#{block_idx}",
-                        title=meta.get("title"),
-                        description=meta.get("description"),
-                        category=meta.get("category"),
-                        subcategory=meta.get("subcategory"),
-                        tags=meta.get("tags"),
-                        artist=meta.get("artist"),
+                    row_id = retry_on_lock(
+                        lambda: insert_ascii_art(
+                            conn,
+                            raw_text=block_text,
+                            source=dataset_name,
+                            source_id=f"{file_path}#{block_idx}",
+                            title=meta.get("title"),
+                            description=meta.get("description"),
+                            category=meta.get("category"),
+                            subcategory=meta.get("subcategory"),
+                            tags=meta.get("tags"),
+                            artist=meta.get("artist"),
+                        )
                     )
                     if row_id is not None:
                         stats.inserted += 1
@@ -630,14 +661,14 @@ def ingest_dataset(
 
                 if max_inserts is not None and stats.inserted >= max_inserts:
                     logger.info(f"Reached max_inserts={max_inserts}, stopping early.")
-                    conn.commit()
+                    retry_on_lock(conn.commit)
                     tracker.update_progress(full_name, line_idx)
                     progress_bar.close()
                     return stats
 
                 if line_idx > last_checkpoint_idx and (line_idx - last_checkpoint_idx) >= checkpoint_every:
-                    conn.commit()
-                    conn.execute("BEGIN")
+                    retry_on_lock(conn.commit)
+                    retry_on_lock(lambda: conn.execute("BEGIN"))
                     tracker.update_progress(full_name, line_idx)
                     last_checkpoint_idx = line_idx
                     progress_bar.set_postfix(
@@ -647,7 +678,9 @@ def ingest_dataset(
                     )
 
                     if stop_at_total_rows is not None:
-                        total = conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+                        total = retry_on_lock(
+                            lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+                        )
                         if total >= stop_at_total_rows:
                             logger.info(
                                 f"Reached stop_at_total_rows={stop_at_total_rows} (total={total}), stopping early."
@@ -658,7 +691,7 @@ def ingest_dataset(
 
             progress_bar.close()
 
-            conn.commit()
+            retry_on_lock(conn.commit)
             tracker.update_progress(full_name, last_progress_idx)
             tracker.mark_completed(full_name, stats)
             logger.info(
@@ -717,17 +750,19 @@ def ingest_dataset(
 
             # Insert into database
             try:
-                row_id = insert_ascii_art(
-                    conn,
-                    raw_text=art_text,
-                    source=dataset_name,
-                    source_id=str(idx),
-                    title=metadata["title"],
-                    description=metadata["description"],
-                    category=metadata["category"],
-                    subcategory=metadata["subcategory"],
-                    tags=metadata["tags"],
-                    artist=metadata["artist"],
+                row_id = retry_on_lock(
+                    lambda: insert_ascii_art(
+                        conn,
+                        raw_text=art_text,
+                        source=dataset_name,
+                        source_id=str(idx),
+                        title=metadata["title"],
+                        description=metadata["description"],
+                        category=metadata["category"],
+                        subcategory=metadata["subcategory"],
+                        tags=metadata["tags"],
+                        artist=metadata["artist"],
+                    )
                 )
                 if row_id is not None:
                     stats.inserted += 1
@@ -740,8 +775,8 @@ def ingest_dataset(
 
             # Checkpoint and commit periodically
             if idx > 0 and idx % checkpoint_every == 0:
-                conn.commit()  # Commit transaction to persist data
-                conn.execute("BEGIN")
+                retry_on_lock(conn.commit)
+                retry_on_lock(lambda: conn.execute("BEGIN"))
                 tracker.update_progress(full_name, idx)
                 progress_bar.set_postfix(
                     inserted=stats.inserted,
@@ -750,7 +785,7 @@ def ingest_dataset(
                 )
 
         # Final commit and mark as completed
-        conn.commit()
+        retry_on_lock(conn.commit)
         tracker.mark_completed(full_name, stats)
         logger.info(
             f"Completed {full_name}: {stats.total_processed} processed, "

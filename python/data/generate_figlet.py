@@ -90,6 +90,58 @@ COMMON_WORDS = [
     "NAME", "LOVE", "PEACE", "POWER", "MAGIC", "DREAM",
 ]
 
+EXTRA_WORDS = [
+    # Short + common
+    "CAT", "DOG", "BIRD", "FISH", "MOUSE", "HORSE", "SHEEP", "GOAT", "COW", "PIG",
+    "LION", "TIGER", "BEAR", "WOLF", "FOX", "DRAGON", "UNICORN",
+    "SUN", "MOON", "STAR", "CLOUD", "RAIN", "SNOW", "WIND", "FIRE", "WATER", "EARTH",
+    "TREE", "FLOWER", "ROSE", "LEAF", "STONE", "ROCK", "MOUNTAIN", "OCEAN", "RIVER", "LAKE",
+    "HOUSE", "HOME", "CITY", "TOWN", "ROAD", "BRIDGE", "TOWER", "CASTLE",
+    "CAR", "TRUCK", "TRAIN", "PLANE", "SHIP", "BOAT", "ROCKET",
+    # Colors
+    "RED", "GREEN", "BLUE", "CYAN", "MAGENTA", "YELLOW", "BLACK", "WHITE", "GRAY",
+    # Tech / CLI
+    "API", "CLI", "JSON", "YAML", "TOML", "SQL", "HTTP", "HTTPS", "TCP", "UDP", "SSH", "TLS",
+    "GIT", "COMMIT", "PUSH", "PULL", "MERGE", "REBASE", "BRANCH", "TAG", "DIFF", "PATCH",
+    "TOKEN", "MODEL", "TRAIN", "EXPORT", "WEIGHTS", "QUANT", "INT8", "INT4",
+    "LINUX", "RUST", "PYTHON", "CUDA", "CPU", "GPU",
+    # Status-ish
+    "READY", "BUSY", "WAIT", "SLEEP", "WAKE", "RETRY", "SUCCESS", "FAILURE",
+    "ONLINE", "OFFLINE", "CONNECTED", "DISCONNECTED",
+    # Time
+    "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
+    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    # Fun
+    "WOW", "NICE", "BRAVO", "CHEERS", "PARTY", "HYPE", "VIBES", "RAD", "NEAT", "GREAT",
+    # More short words for incremental runs (kept relatively short to avoid width limits).
+    "ROBOT", "ALIEN", "SPACE", "LASER", "PIXEL", "RETRO", "ANSI", "SCENE", "PACK", "GROUP",
+    "BBS", "NET", "NODE", "PIPE", "PORT", "SOCK", "QUEUE", "STACK", "HEAP", "CACHE",
+    "TRACE", "PANIC", "CRASH", "RECOVER", "ROLLBACK", "RELEASE", "DEPLOY",
+    "SHELL", "BASH", "ZSH", "FISH", "CARGO", "MAKE", "TESTS", "UNIT", "E2E",
+    "LINT", "FORMAT", "CHECK", "BUILD", "CLEAN",
+    "ALPHA", "BETA2", "GAMMA", "DELTA", "OMEGA",
+    "NORTH", "SOUTH", "EAST", "WEST",
+    "HAPPY", "SMILE", "LAUGH", "CRY", "ANGRY",
+    "COFFEE", "TEA", "PIZZA", "TACO", "SUSHI",
+    "MUSIC2", "VIDEO2", "PHOTO", "CAMERA", "RADIO",
+    "BOOK", "PAPER", "PENCIL", "BRUSH", "CANVAS",
+    "BUNNY", "PANDA", "KOALA", "EAGLE", "SHARK",
+    "SNAIL", "FROG", "WHALE", "ZEBRA", "OTTER",
+    "SWORD", "SHIELD", "QUEST", "BATTLE", "LEVEL",
+    "AURORA", "COMET", "GALAXY", "ORBIT", "METEOR",
+    "SIGNAL", "NOISE", "ECHO", "VOICE", "SILENCE",
+]
+
+
+def _word_list(kind: str) -> list[str]:
+    if kind == "base":
+        return COMMON_WORDS
+    if kind == "extra":
+        return EXTRA_WORDS
+    if kind == "all":
+        return [*COMMON_WORDS, *EXTRA_WORDS]
+    raise ValueError(f"Unsupported word set: {kind!r}")
+
 
 @dataclass
 class FontTestResult:
@@ -213,44 +265,53 @@ def discover_fonts(fonts_dir: Path) -> list[Path]:
     return sorted(fonts)
 
 
-def generate_texts_for_font(font_path: Path, font_name: str) -> Iterator[tuple[str, str, dict]]:
+def generate_texts_for_font(
+    font_path: Path,
+    font_name: str,
+    *,
+    include_letters: bool,
+    include_digits: bool,
+    words: list[str],
+) -> Iterator[tuple[str, str, dict]]:
     """
     Generate all text variations for a font.
 
     Yields: (raw_text, description, metadata_dict)
     """
-    # Generate uppercase alphabet
-    for char in ALPHABET_UPPER:
-        art = generate_figlet(char, font_path)
-        if art and is_valid_output(art):
-            yield (
-                art,
-                f"FIGlet letter '{char}' in {font_name} font",
-                {"input_text": char, "font": font_name, "type": "letter"},
-            )
+    if include_letters:
+        # Generate uppercase alphabet
+        for char in ALPHABET_UPPER:
+            art = generate_figlet(char, font_path)
+            if art and is_valid_output(art):
+                yield (
+                    art,
+                    f"FIGlet letter '{char}' in {font_name} font",
+                    {"input_text": char, "font": font_name, "type": "letter"},
+                )
 
-    # Generate lowercase alphabet
-    for char in ALPHABET_LOWER:
-        art = generate_figlet(char, font_path)
-        if art and is_valid_output(art):
-            yield (
-                art,
-                f"FIGlet letter '{char}' in {font_name} font",
-                {"input_text": char, "font": font_name, "type": "letter"},
-            )
+        # Generate lowercase alphabet
+        for char in ALPHABET_LOWER:
+            art = generate_figlet(char, font_path)
+            if art and is_valid_output(art):
+                yield (
+                    art,
+                    f"FIGlet letter '{char}' in {font_name} font",
+                    {"input_text": char, "font": font_name, "type": "letter"},
+                )
 
-    # Generate digits
-    for digit in DIGITS:
-        art = generate_figlet(digit, font_path)
-        if art and is_valid_output(art):
-            yield (
-                art,
-                f"FIGlet digit '{digit}' in {font_name} font",
-                {"input_text": digit, "font": font_name, "type": "digit"},
-            )
+    if include_digits:
+        # Generate digits
+        for digit in DIGITS:
+            art = generate_figlet(digit, font_path)
+            if art and is_valid_output(art):
+                yield (
+                    art,
+                    f"FIGlet digit '{digit}' in {font_name} font",
+                    {"input_text": digit, "font": font_name, "type": "digit"},
+                )
 
-    # Generate common words
-    for word in COMMON_WORDS:
+    # Generate words
+    for word in words:
         art = generate_figlet(word, font_path)
         if art and is_valid_output(art):
             yield (
@@ -265,6 +326,11 @@ def generate_dataset(
     db_path: str = "data/ascii_art.db",
     batch_size: int = 100,
     max_fonts: int | None = None,
+    *,
+    include_letters: bool = True,
+    include_digits: bool = True,
+    word_set: str = "base",
+    stop_at_total_rows: int | None = None,
 ) -> GenerationStats:
     """
     Generate FIGlet banner dataset from all fonts.
@@ -314,13 +380,21 @@ def generate_dataset(
     initialize(conn)
 
     # Generate from working fonts
+    words = _word_list(word_set)
     pending = 0
     conn.execute("BEGIN")
+    hit_stop = False
 
     for i, font_path in enumerate(working_fonts):
         font_name = font_path.stem
 
-        for raw_text, description, extra_meta in generate_texts_for_font(font_path, font_name):
+        for raw_text, description, extra_meta in generate_texts_for_font(
+            font_path,
+            font_name,
+            include_letters=include_letters,
+            include_digits=include_digits,
+            words=words,
+        ):
             try:
                 # Insert with upsert (handles dedup and computes metadata)
                 # Use retry logic to handle database locks from concurrent processes
@@ -350,10 +424,20 @@ def generate_dataset(
                     retry_on_lock(conn.commit)
                     conn.execute("BEGIN")
                     pending = 0
+                    if stop_at_total_rows is not None:
+                        total = retry_on_lock(
+                            lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+                        )
+                        if int(total) >= stop_at_total_rows:
+                            hit_stop = True
+                            break
 
             except Exception as e:
                 stats.errors += 1
                 logger.warning(f"Error inserting {font_name}/{extra_meta['input_text']}: {e}")
+
+        if hit_stop:
+            break
 
         if (i + 1) % 10 == 0:
             retry_on_lock(conn.commit)
@@ -362,6 +446,11 @@ def generate_dataset(
                 f"Processed {i + 1}/{len(working_fonts)} fonts, "
                 f"{stats.total_generated} generated, {stats.inserted} inserted"
             )
+            if stop_at_total_rows is not None:
+                total = retry_on_lock(lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0])
+                if int(total) >= stop_at_total_rows:
+                    hit_stop = True
+                    break
 
     # Final commit
     retry_on_lock(conn.commit)
@@ -393,10 +482,34 @@ def main():
         help="Path to SQLite database",
     )
     parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        help="Commit every N inserts (default: 100)",
+    )
+    parser.add_argument(
+        "--stop-at-total-rows",
+        type=int,
+        default=None,
+        help="Stop early once total ascii_art rows reaches this threshold (checked at commit points)",
+    )
+    parser.add_argument(
         "--max-fonts",
         type=int,
         default=None,
         help="Limit number of fonts (for testing)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["all", "words"],
+        default="all",
+        help="Generation mode: all (letters+digits+words) or words only (default: all)",
+    )
+    parser.add_argument(
+        "--word-set",
+        choices=["base", "extra", "all"],
+        default="base",
+        help="Which word list to generate (default: base)",
     )
     parser.add_argument(
         "--include-system",
@@ -421,10 +534,17 @@ def main():
             continue
 
         logger.info(f"Processing fonts from: {font_dir}")
+        include_letters = args.mode == "all"
+        include_digits = args.mode == "all"
         stats = generate_dataset(
             fonts_dir=font_dir,
             db_path=args.db_path,
+            batch_size=args.batch_size,
             max_fonts=args.max_fonts,
+            include_letters=include_letters,
+            include_digits=include_digits,
+            word_set=args.word_set,
+            stop_at_total_rows=args.stop_at_total_rows,
         )
 
         # Aggregate stats
@@ -451,7 +571,7 @@ def main():
 
     # Save broken fonts report
     if total_stats.broken_fonts:
-        report_path = Path("figlet_broken_fonts.json")
+        report_path = Path(__file__).resolve().parent / "figlet_broken_fonts.json"
         with open(report_path, "w") as f:
             json.dump(
                 [{"font": f, "reason": r} for f, r in total_stats.broken_fonts],
