@@ -26,6 +26,9 @@ log "=== E2E: export ==="
 log "=== E2E: rust ==="
 E2E_MODEL_PATH="$EXPORT_DIR/model.safetensors" E2E_MAX_CHARS=80 "$REPO_ROOT/tests/e2e/e2e_rust.sh" 2>&1 | tee -a "$LOG_FILE"
 
+log "=== E2E: embedded ==="
+"$REPO_ROOT/tests/e2e/e2e_embedded.sh" "$EXPORT_DIR" 2>&1 | tee -a "$LOG_FILE"
+
 log "=== ALL E2E STEPS PASSED ==="
 log "Artifacts kept under: $TMP_DIR"
 log "Note: project policy forbids auto-cleanup via rm -rf; delete $TMP_DIR manually if desired."
