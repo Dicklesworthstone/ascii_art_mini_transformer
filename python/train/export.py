@@ -423,6 +423,7 @@ def export_from_checkpoint(
     output_dir: str | Path,
     export_dtype: str = "float32",
     quantize: str = "none",
+    unsafe_load: bool = False,
     n_layer: int = 6,
     n_head: int = 6,
     n_embd: int = 384,
@@ -460,43 +461,24 @@ def export_from_checkpoint(
         model_state_dict = checkpoint.get("model", checkpoint)
         print("Loaded weights successfully (weights_only mode)")
 
-        # Infer config from state dict shapes.
-        #
-        # Note: Some hyperparameters (notably n_head) cannot be inferred reliably from tensor
-        # shapes in this architecture. We still infer as a fallback, but if checkpoint metadata
-        # is available we will prefer that below.
-        model_config = _infer_config_from_state_dict(
-            model_state_dict,
-            fallback_n_layer=n_layer,
-            fallback_n_head=n_head,
-            fallback_block_size=block_size,
-        )
-
-        # If possible, load checkpoint metadata to recover the exact model hyperparameters.
-        #
-        # This may fail for older checkpoints that contain pickled objects with missing module
-        # paths. In that case, we keep the inferred config.
-        try:
-            full_checkpoint = torch.load(
-                checkpoint_path, weights_only=False, map_location="cpu"
-            )
-            if isinstance(full_checkpoint, dict):
-                cfg = full_checkpoint.get("model_config") or full_checkpoint.get(
-                    "training_config"
-                )
-                parsed = _extract_config_from_dict(cfg) or _extract_config_from_object(cfg)
-                if parsed is not None:
-                    model_config = parsed
-                    print("Loaded model config from checkpoint metadata")
-        except Exception as metadata_error:
-            print(
-                f"Could not load checkpoint metadata for config: {metadata_error} "
-                "(continuing with inferred config)"
-            )
+        # Prefer checkpoint metadata when available (weights_only mode keeps us out of pickle).
+        if isinstance(checkpoint, dict):
+            cfg = checkpoint.get("model_config") or checkpoint.get("training_config")
+            parsed = _extract_config_from_dict(cfg) or _extract_config_from_object(cfg)
+            if parsed is not None:
+                model_config = parsed
+                print("Loaded model config from checkpoint metadata (weights_only)")
 
     except Exception as weights_only_error:
+        if not unsafe_load:
+            raise RuntimeError(
+                "Failed to load checkpoint in safe weights_only mode. "
+                "If you trust this checkpoint and need legacy pickle loading, re-run with "
+                "`--unsafe-load`. WARNING: unsafe for untrusted files."
+            ) from weights_only_error
+
         print(f"weights_only load failed: {weights_only_error}")
-        print("Trying full checkpoint load...")
+        print("Trying full checkpoint load (UNSAFE)...")
 
         # Try loading full checkpoint (may fail with pickle issues)
         try:
@@ -669,6 +651,11 @@ if __name__ == "__main__":
         help="Path to training checkpoint (.pt file)",
     )
     parser.add_argument(
+        "--unsafe-load",
+        action="store_true",
+        help="Allow legacy pickle checkpoint loading (UNSAFE for untrusted files)",
+    )
+    parser.add_argument(
         "--output-dir",
         type=str,
         default="models/exported",
@@ -733,7 +720,11 @@ if __name__ == "__main__":
         print_export_summary(args.validate)
     elif args.checkpoint:
         export_from_checkpoint(
-            args.checkpoint, args.output_dir, args.dtype, args.quantize
+            args.checkpoint,
+            args.output_dir,
+            args.dtype,
+            args.quantize,
+            unsafe_load=args.unsafe_load,
         )
         validate_export(args.output_dir)
         print_export_summary(args.output_dir)

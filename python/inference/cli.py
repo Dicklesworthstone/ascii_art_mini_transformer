@@ -2,19 +2,39 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
 
-def _load_torch_checkpoint(path: Path) -> tuple[dict[str, Any], dict[str, Any] | None]:
+def _load_torch_checkpoint(
+    path: Path, *, unsafe_load: bool
+) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
         import torch  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise ModuleNotFoundError("torch is required to load checkpoints") from exc
 
-    obj = torch.load(str(path), map_location="cpu", weights_only=False)
+    try:
+        obj = torch.load(str(path), map_location="cpu", weights_only=True)
+    except Exception as exc:
+        if not unsafe_load:
+            raise RuntimeError(
+                "Failed to load checkpoint in safe weights_only mode. "
+                "If you trust this checkpoint and need legacy pickle loading, re-run with "
+                "`--unsafe-load`. WARNING: unsafe for untrusted files."
+            ) from exc
+        print(
+            "Warning: falling back to unsafe torch.load(weights_only=False). "
+            "Do not use this on untrusted checkpoints.",
+            file=sys.stderr,
+        )
+        obj = torch.load(str(path), map_location="cpu", weights_only=False)
+
     if not isinstance(obj, dict):
-        raise TypeError(f"Unsupported checkpoint format: {type(obj)}")  # pragma: no cover
+        raise TypeError(
+            f"Unsupported checkpoint format: {type(obj)}"
+        )  # pragma: no cover
 
     # Preferred format: our training checkpoints saved by `python/train/train.py`.
     if "model" in obj and isinstance(obj["model"], dict):
@@ -34,7 +54,9 @@ def _load_float_safetensors(weights_path: Path) -> dict[str, Any]:
     try:
         from safetensors.torch import load_file  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise ModuleNotFoundError("safetensors is required to load .safetensors weights") from exc
+        raise ModuleNotFoundError(
+            "safetensors is required to load .safetensors weights"
+        ) from exc
     return dict(load_file(str(weights_path)))
 
 
@@ -55,7 +77,9 @@ def _filter_model_config(cfg: dict[str, Any], config_type) -> dict[str, Any]:
 
 
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Generate ASCII art (Python inference)")
+    parser = argparse.ArgumentParser(
+        description="Generate ASCII art (Python inference)"
+    )
     parser.add_argument("prompt", type=str, help="Text prompt / subject to generate")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
@@ -76,12 +100,22 @@ def main(argv: Optional[list[str]] = None) -> int:
     )
     parser.add_argument("--width", type=int, default=80)
     parser.add_argument("--height", type=int, default=50)
-    parser.add_argument("--style", type=str, default="art", choices=["art", "banner", "simple", "detailed"])
+    parser.add_argument(
+        "--style",
+        type=str,
+        default="art",
+        choices=["art", "banner", "simple", "detailed"],
+    )
     parser.add_argument("--temperature", type=float, default=0.7)
     parser.add_argument("--top-k", type=int, default=50)
     parser.add_argument("--top-p", type=float, default=0.9)
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--unsafe-load",
+        action="store_true",
+        help="Allow legacy pickle checkpoint loading when using --checkpoint (UNSAFE for untrusted files)",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -95,11 +129,17 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     cfg: dict[str, Any] | None
     if args.checkpoint is not None:
-        state_dict, cfg = _load_torch_checkpoint(args.checkpoint)
+        state_dict, cfg = _load_torch_checkpoint(
+            args.checkpoint, unsafe_load=args.unsafe_load
+        )
     else:
         assert args.model is not None
         state_dict = _load_float_safetensors(args.model)
-        cfg_path = args.config if args.config is not None else args.model.parent / "config.json"
+        cfg_path = (
+            args.config
+            if args.config is not None
+            else args.model.parent / "config.json"
+        )
         cfg = _load_config_json(cfg_path) if cfg_path.exists() else None
 
     config_kwargs = _filter_model_config(cfg or {}, AsciiGPTConfig)

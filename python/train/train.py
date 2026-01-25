@@ -223,10 +223,29 @@ def load_checkpoint(
     Returns:
         Tuple of (iter_num, best_val_loss)
     """
-    checkpoint = torch.load(path, weights_only=False)
-    model.load_state_dict(checkpoint["model"])
-    if optimizer is not None and "optimizer" in checkpoint:
-        optimizer.load_state_dict(checkpoint["optimizer"])
+    checkpoint = torch.load(str(path), weights_only=True, map_location="cpu")
+    if not isinstance(checkpoint, dict):  # pragma: no cover
+        raise TypeError(f"Unsupported checkpoint format: {type(checkpoint)}")
+
+    model_state = checkpoint.get("model", checkpoint)
+    if not isinstance(model_state, dict):  # pragma: no cover
+        raise TypeError(f"Unsupported model state format: {type(model_state)}")
+
+    model.load_state_dict(model_state)
+
+    if optimizer is not None:
+        opt_state = checkpoint.get("optimizer")
+        if isinstance(opt_state, dict):
+            optimizer.load_state_dict(opt_state)
+
+            # Ensure optimizer state tensors live on the same device as model params,
+            # so resume works even when the checkpoint was saved on a different device.
+            device = next(model.parameters()).device
+            for state in optimizer.state.values():
+                for key, value in state.items():
+                    if isinstance(value, torch.Tensor):
+                        state[key] = value.to(device)
+
     iter_num = checkpoint.get("iter_num", 0)
     best_val_loss = checkpoint.get("best_val_loss", float("inf"))
     print(f"Loaded checkpoint from {path} at iter {iter_num}")
@@ -527,13 +546,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Model size preset (sets n_layer/n_head/n_embd/block_size defaults)",
     )
     parser.add_argument(
-        "--n-layer", type=int, default=None, help="Override layer count (default from --preset)"
+        "--n-layer",
+        type=int,
+        default=None,
+        help="Override layer count (default from --preset)",
     )
     parser.add_argument(
-        "--n-head", type=int, default=None, help="Override head count (default from --preset)"
+        "--n-head",
+        type=int,
+        default=None,
+        help="Override head count (default from --preset)",
     )
     parser.add_argument(
-        "--n-embd", type=int, default=None, help="Override embedding dim (default from --preset)"
+        "--n-embd",
+        type=int,
+        default=None,
+        help="Override embedding dim (default from --preset)",
     )
     parser.add_argument("--dropout", type=float, default=0.1)
 
