@@ -4,7 +4,7 @@ Generate cross-validation golden data for Python vs Rust comparison.
 
 This script creates the test data files used by Rust cross-validation tests.
 Run from the project root:
-    python python/tests/generate_crossval_data.py
+    python3 python/tests/generate_crossval_data.py
 
 Output files are written to: rust/ascii-gen/test_data/crossval/
 """

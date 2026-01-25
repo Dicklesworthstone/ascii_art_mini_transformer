@@ -18,7 +18,7 @@ This repo is currently being bootstrapped from beads issues in `.beads/`.
 The `ascii-gen` CLI lives at `rust/ascii-gen/`.
 
 - External weights: `cargo run --manifest-path rust/ascii-gen/Cargo.toml -- --model models/exported/model.safetensors "cat"`
-- Quantized weights (weight-only): export with `python python/train/export.py --quantize int8|int4|both` which writes `model_int8.safetensors` / `model_int4.safetensors` plus `quant_config.json`; then run `cargo run --manifest-path rust/ascii-gen/Cargo.toml -- --model models/exported/model_int4.safetensors "cat"` (keep `quant_config.json` in the same directory).
+- Quantized weights (weight-only): export with `python3 python/train/export.py --quantize int8|int4|both` which writes `model_int8.safetensors` / `model_int4.safetensors` plus `quant_config.json`; then run `cargo run --manifest-path rust/ascii-gen/Cargo.toml -- --model models/exported/model_int4.safetensors "cat"` (keep `quant_config.json` in the same directory).
 - Embedded weights (single-file): export a model into `models/exported/`, then build with `--features embedded-weights` (optionally set `ASCII_GEN_MODEL_PATH`).
 
 Issue tracking is via `br` / `bv` (beads_rust). See `AGENTS.md` for workflow.
