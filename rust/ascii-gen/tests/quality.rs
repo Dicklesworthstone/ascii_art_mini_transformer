@@ -63,10 +63,10 @@ fn load_test_model() -> Option<AsciiGPT> {
     ascii_gen::model::load_model(weights_path, config, &device).ok()
 }
 
-/// Check if test model weights are available.
+/// Check if test model weights and config are available.
 #[allow(dead_code)]
 fn model_available() -> bool {
-    Path::new("test_data/model.safetensors").exists()
+    Path::new("test_data/model.safetensors").exists() && Path::new("test_data/config.json").exists()
 }
 
 // ==================== Smoke Tests (run with any model) ====================
@@ -475,8 +475,7 @@ fn test_benchmark_all_prompts() {
 
     eprintln!(
         "\nBenchmark results: {}/{} successful",
-        success_count,
-        prompt_count
+        success_count, prompt_count
     );
     // Allow up to 1 failure for tiny test models (production models should have 0)
     assert!(
