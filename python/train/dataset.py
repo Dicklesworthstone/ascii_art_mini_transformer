@@ -15,6 +15,7 @@ The pipeline handles:
 
 from __future__ import annotations
 
+import os
 import random
 import sqlite3
 from dataclasses import dataclass
@@ -82,6 +83,8 @@ class AsciiArtDataset(Dataset):
         self.db_path = str(db_path)
         self.tokenizer = tokenizer or get_tokenizer()
         self.config = config or DataConfig(db_path=self.db_path)
+        self._conn: sqlite3.Connection | None = None
+        self._conn_pid: int | None = None
 
         # Compute max chars if not specified
         if self.config.max_chars is None:
@@ -90,6 +93,40 @@ class AsciiArtDataset(Dataset):
 
         # Load valid IDs from database
         self.ids = self._load_valid_ids()
+
+    def __getstate__(self) -> dict:
+        # sqlite3.Connection is not pickleable. Ensure DataLoader worker processes can
+        # serialize the dataset even if it was used before for debugging.
+        state = self.__dict__.copy()
+        state["_conn"] = None
+        state["_conn_pid"] = None
+        return state
+
+    def close(self) -> None:
+        """Close any cached DB connection (best-effort)."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+            self._conn_pid = None
+
+    def __del__(self) -> None:  # pragma: no cover
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _get_conn(self) -> sqlite3.Connection:
+        """Get (or lazily create) a cached read-only connection for faster iteration."""
+        pid = os.getpid()
+        if self._conn is None or self._conn_pid != pid:
+            if self._conn is not None:
+                self._conn.close()
+            conn = sqlite3.connect(self.db_path)
+            # Defensive: prevent accidental writes from training code.
+            conn.execute("PRAGMA query_only = 1;")
+            self._conn = conn
+            self._conn_pid = pid
+        return self._conn
 
     def _load_valid_ids(self) -> list[int]:
         """Load IDs of valid art pieces that fit within block_size."""
@@ -154,18 +191,15 @@ class AsciiArtDataset(Dataset):
         art_id = self.ids[idx]
 
         # Load from database
-        conn = sqlite3.connect(self.db_path)
-        try:
-            cursor = conn.execute(
-                """
-                SELECT raw_text, width, height, description, category
-                FROM ascii_art WHERE id = ?
-            """,
-                (art_id,),
-            )
-            row = cursor.fetchone()
-        finally:
-            conn.close()
+        conn = self._get_conn()
+        cursor = conn.execute(
+            """
+            SELECT raw_text, width, height, description, category
+            FROM ascii_art WHERE id = ?
+        """,
+            (art_id,),
+        )
+        row = cursor.fetchone()
 
         if row is None:
             raise IndexError(f"Art ID {art_id} not found in database")
@@ -283,18 +317,15 @@ class AugmentedAsciiArtDataset(Dataset):
 
         # Get the art ID and fetch raw data
         art_id = self.base_dataset.ids[idx]
-        conn = sqlite3.connect(self.base_dataset.db_path)
-        try:
-            cursor = conn.execute(
-                """
-                SELECT raw_text, width, height, description, category
-                FROM ascii_art WHERE id = ?
-            """,
-                (art_id,),
-            )
-            row = cursor.fetchone()
-        finally:
-            conn.close()
+        conn = self.base_dataset._get_conn()
+        cursor = conn.execute(
+            """
+            SELECT raw_text, width, height, description, category
+            FROM ascii_art WHERE id = ?
+        """,
+            (art_id,),
+        )
+        row = cursor.fetchone()
 
         if row is None:
             return self.base_dataset[idx]
