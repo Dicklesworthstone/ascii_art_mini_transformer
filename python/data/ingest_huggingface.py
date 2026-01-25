@@ -235,6 +235,11 @@ def _csplk_looks_like_art_line(line: str) -> bool:
         return False
     if any(ch in text for ch in ("\\", "/", "|", "_", "(", ")", "[", "]", "{", "}", "<", ">")):
         return True
+    # Lines with very low charset variety (after stripping) are often part of big ASCII banners,
+    # even if they contain only alnum + spaces (e.g. "            XX").
+    nonspace = [ch for ch in text if not ch.isspace()]
+    if len(nonspace) >= 2 and len(set(nonspace)) <= 3 and len(text) >= 16:
+        return True
     # Banner-like art often uses long runs of the same character (e.g. "XXXXXX", "OOOOOO").
     if len(text) >= 12 and _csplk_max_run_len(text) >= 6:
         return True
