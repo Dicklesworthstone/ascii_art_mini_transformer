@@ -93,6 +93,14 @@ class ProgressTracker:
     def get_start_row(self, dataset_name: str) -> int:
         return self.state["last_row"].get(dataset_name, 0)
 
+    def reset_dataset(self, dataset_name: str, *, start_row: int = 0) -> None:
+        """Clear completion/progress for a dataset so it can be re-processed."""
+        if dataset_name in self.state["completed_datasets"]:
+            self.state["completed_datasets"].remove(dataset_name)
+        self.state["last_row"][dataset_name] = start_row
+        self.state["stats"].pop(dataset_name, None)
+        self.save()
+
 
 def _csplk_is_file_marker(line: str) -> bool:
     return line.startswith("File: ")
@@ -148,6 +156,46 @@ def _csplk_non_alnum_ratio(text: str) -> float:
     return non_alnum / len(nonspace)
 
 
+def _csplk_digit_ratio(text: str) -> float:
+    nonspace = [ch for ch in text if not ch.isspace()]
+    if not nonspace:
+        return 0.0
+    digits = sum(1 for ch in nonspace if ch.isdigit())
+    return digits / len(nonspace)
+
+
+def _csplk_max_run_len(text: str) -> int:
+    # Long runs of the same char are common in ASCII art (e.g. "XXXXXX", "======").
+    longest = 0
+    current = 0
+    prev: str | None = None
+    for ch in text:
+        if ch.isspace():
+            prev = None
+            current = 0
+            continue
+        if prev == ch:
+            current += 1
+        else:
+            prev = ch
+            current = 1
+        if current > longest:
+            longest = current
+    return longest
+
+
+def _csplk_is_separator_line(line: str) -> bool:
+    stripped = line.strip()
+    if len(stripped) < 3:
+        return False
+    if stripped.startswith("File: "):
+        return False
+    # Common separators: "-----", "=====", "*****", "_____", etc.
+    if len(set(stripped)) == 1 and stripped[0] in "-=_*~_":
+        return True
+    return False
+
+
 def _csplk_is_title_line(line: str) -> bool:
     if not line or line != line.lstrip():
         return False
@@ -163,7 +211,15 @@ def _csplk_is_title_line(line: str) -> bool:
         return False
     if text.startswith("File: "):
         return False
+    if _csplk_is_separator_line(text):
+        return False
     if not any(ch.isalpha() for ch in text):
+        return False
+
+    # Avoid mis-classifying ASCII art lines that start at column 0 (e.g. "Y8888888b...").
+    if _csplk_max_run_len(text) >= 8:
+        return False
+    if _csplk_digit_ratio(text) > 0.2:
         return False
 
     return _csplk_non_alnum_ratio(text) <= 0.3
@@ -173,7 +229,14 @@ def _csplk_looks_like_art_line(line: str) -> bool:
     text = line.rstrip()
     if not text.strip():
         return False
+    if text.startswith("File: "):
+        return False
+    if _csplk_is_separator_line(text):
+        return False
     if any(ch in text for ch in ("\\", "/", "|", "_", "(", ")", "[", "]", "{", "}", "<", ">")):
+        return True
+    # Banner-like art often uses long runs of the same character (e.g. "XXXXXX", "OOOOOO").
+    if len(text) >= 12 and _csplk_max_run_len(text) >= 6:
         return True
     return _csplk_non_alnum_ratio(text) >= 0.5
 
@@ -204,14 +267,14 @@ def _iter_csplk_blocks(
     base_meta: dict[str, Any] | None = None
     current_title: str | None = None
     block_lines: list[str] = []
-    blank_run = 0
+    pending_blanks: list[str] = []
     block_idx = 0
 
     def flush(idx: int) -> Optional[tuple[int, str, int, dict[str, Any], str]]:
-        nonlocal block_idx, blank_run
-        blank_run = 0
+        nonlocal block_idx
         text = _finalize_block(block_lines)
         block_lines.clear()
+        pending_blanks.clear()
         if text is None or current_path is None or base_meta is None:
             return None
         block_idx += 1
@@ -252,17 +315,33 @@ def _iter_csplk_blocks(
             continue
 
         if not line.strip():
+            # Defer deciding whether blanks are internal whitespace or separators until we see the
+            # next non-empty line.
             if block_lines:
-                block_lines.append(line)
-            blank_run += 1
-            if blank_run >= 2:
+                pending_blanks.append(line)
+            continue
+
+        if pending_blanks and block_lines:
+            # Heuristic split: treat blank lines as separators when either:
+            # - there are 2+ consecutive blanks, or
+            # - the next line is a title/separator, or
+            # - we see "art -> blank -> art" and the current block already has multiple lines.
+            next_is_title = _csplk_is_title_line(line)
+            next_is_sep = _csplk_is_separator_line(line)
+            art_to_art = (
+                len(pending_blanks) >= 1
+                and len(block_lines) >= 3
+                and _csplk_looks_like_art_line(block_lines[-1])
+                and _csplk_looks_like_art_line(line)
+            )
+            if len(pending_blanks) >= 2 or next_is_title or next_is_sep or art_to_art:
                 flushed = flush(idx)
                 if flushed is not None:
                     yield flushed
                 current_title = None
-                blank_run = 0
-            continue
-        blank_run = 0
+            else:
+                block_lines.extend(pending_blanks)
+                pending_blanks.clear()
 
         if _csplk_is_title_line(line):
             if block_lines:
@@ -270,6 +349,14 @@ def _iter_csplk_blocks(
                 if flushed is not None:
                     yield flushed
             current_title = line.strip()
+            continue
+
+        if _csplk_is_separator_line(line):
+            if block_lines:
+                flushed = flush(idx)
+                if flushed is not None:
+                    yield flushed
+            current_title = None
             continue
 
         if not block_lines and current_title is None and not _csplk_looks_like_art_line(line):
@@ -455,6 +542,8 @@ def ingest_dataset(
     max_inserts: Optional[int] = None,
     stop_at_total_rows: Optional[int] = None,
     split_blocks: bool = True,
+    force: bool = False,
+    start_row_override: Optional[int] = None,
 ) -> IngestionStats:
     """
     Ingest a single HuggingFace dataset into the database.
@@ -469,12 +558,19 @@ def ingest_dataset(
     full_name = f"{dataset_name}/{config}" if config else dataset_name
     stats = IngestionStats(dataset_name=full_name)
 
-    if tracker.is_completed(full_name):
-        logger.info(f"Skipping {full_name} (already completed)")
-        return stats
-
+    if force:
+        start_row = 0 if start_row_override is None else start_row_override
+        tracker.reset_dataset(full_name, start_row=start_row)
+    else:
+        if tracker.is_completed(full_name):
+            logger.info(f"Skipping {full_name} (already completed)")
+            return stats
+        start_row = (
+            start_row_override
+            if start_row_override is not None
+            else tracker.get_start_row(full_name)
+        )
     logger.info(f"Starting ingestion of {full_name}")
-    start_row = tracker.get_start_row(full_name)
     if start_row > 0:
         logger.info(f"Resuming from row {start_row}")
 
@@ -486,6 +582,7 @@ def ingest_dataset(
             ds = load_dataset(dataset_name, config, split="train", streaming=True)
             progress_bar = tqdm(total=None, desc=f"Ingesting {dataset_name}", initial=start_row)
             last_progress_idx = start_row
+            last_checkpoint_idx = start_row
 
             for line_idx, file_path, block_idx, meta, block_text in _iter_csplk_blocks(
                 ds,
@@ -530,14 +627,14 @@ def ingest_dataset(
                     logger.info(f"Reached max_inserts={max_inserts}, stopping early.")
                     conn.commit()
                     tracker.update_progress(full_name, line_idx)
-                    tracker.save()
                     progress_bar.close()
                     return stats
 
-                if line_idx > 0 and line_idx % checkpoint_every == 0:
+                if line_idx > last_checkpoint_idx and (line_idx - last_checkpoint_idx) >= checkpoint_every:
                     conn.commit()
                     conn.execute("BEGIN")
                     tracker.update_progress(full_name, line_idx)
+                    last_checkpoint_idx = line_idx
                     progress_bar.set_postfix(
                         inserted=stats.inserted,
                         dups=stats.duplicates,
@@ -551,13 +648,13 @@ def ingest_dataset(
                                 f"Reached stop_at_total_rows={stop_at_total_rows} (total={total}), stopping early."
                             )
                             tracker.update_progress(full_name, line_idx)
-                            tracker.save()
                             progress_bar.close()
                             return stats
 
             progress_bar.close()
 
             conn.commit()
+            tracker.update_progress(full_name, last_progress_idx)
             tracker.mark_completed(full_name, stats)
             logger.info(
                 f"Completed {full_name}: {stats.total_processed} processed, "
@@ -676,7 +773,11 @@ def get_db_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     return {"total": total, "valid": valid, "sources": sources}
 
 
-def ingest_all_datasets(db_path: str = "data/ascii_art.db") -> dict[str, IngestionStats]:
+def ingest_all_datasets(
+    db_path: str = "data/ascii_art.db",
+    *,
+    progress_file: str = "ingestion_progress.json",
+) -> dict[str, IngestionStats]:
     """
     Ingest all configured HuggingFace datasets.
 
@@ -696,7 +797,7 @@ def ingest_all_datasets(db_path: str = "data/ascii_art.db") -> dict[str, Ingesti
         ("jdpressman/retro-ascii-art-v1", None),
     ]
 
-    tracker = ProgressTracker()
+    tracker = ProgressTracker(progress_file=progress_file)
     all_stats: dict[str, IngestionStats] = {}
 
     # Ensure database directory exists
@@ -772,6 +873,11 @@ def main():
         help="Path to SQLite database (default: data/ascii_art.db)",
     )
     parser.add_argument(
+        "--progress-file",
+        default="ingestion_progress.json",
+        help="Path to ingestion progress JSON (default: ingestion_progress.json)",
+    )
+    parser.add_argument(
         "--dataset",
         help="Ingest only a specific dataset (e.g., 'Csplk/THE.ASCII.ART.EMPORIUM')",
     )
@@ -798,6 +904,17 @@ def main():
         help="Stop early once total ascii_art rows reaches this threshold (checked at checkpoints)",
     )
     parser.add_argument(
+        "--start-row",
+        type=int,
+        default=None,
+        help="Override resume row/line index (default: use progress file)",
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-process the dataset even if marked completed (resets saved progress for that dataset)",
+    )
+    parser.add_argument(
         "--no-split-blocks",
         action="store_true",
         help="For Csplk ingestion: treat each file as a single block (no double-blank splitting)",
@@ -809,7 +926,7 @@ def main():
         db_path_obj = Path(args.db_path)
         db_path_obj.parent.mkdir(parents=True, exist_ok=True)
 
-        tracker = ProgressTracker()
+        tracker = ProgressTracker(progress_file=args.progress_file)
         conn = connect(args.db_path)
         try:
             initialize(conn)
@@ -822,13 +939,15 @@ def main():
                 max_inserts=args.max_inserts,
                 stop_at_total_rows=args.stop_at_total_rows,
                 split_blocks=not args.no_split_blocks,
+                force=args.force,
+                start_row_override=args.start_row,
             )
             logger.info(f"Completed: {stats}")
         finally:
             conn.close()
     else:
         # Ingest all datasets
-        ingest_all_datasets(args.db_path)
+        ingest_all_datasets(args.db_path, progress_file=args.progress_file)
 
 
 if __name__ == "__main__":

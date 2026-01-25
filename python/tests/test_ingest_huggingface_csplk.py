@@ -81,3 +81,30 @@ def test_iter_csplk_blocks_skips_indented_preamble_before_art() -> None:
     assert "header line" not in text
     assert "/\\_/\\ " in text
     assert "( o.o )" in text
+
+
+def test_iter_csplk_blocks_splits_on_separator_lines() -> None:
+    ds = [
+        {"text": "File: misc/separators/demo.txt"},
+        {"text": "Example"},
+        {"text": " /\\_/\\ "},
+        {"text": "( o.o )"},
+        {"text": ""},
+        {"text": "-----"},
+        {"text": "Second"},
+        {"text": "(=^.^=)"},
+    ]
+
+    blocks = list(ih._iter_csplk_blocks(ds, start_row=0, split_blocks=True))
+    assert len(blocks) == 2
+
+    _idx0, _path0, block0_idx, meta0, text0 = blocks[0]
+    assert block0_idx == 1
+    assert meta0["title"] == "Example"
+    assert "-----" not in text0
+
+    _idx1, _path1, block1_idx, meta1, text1 = blocks[1]
+    assert block1_idx == 2
+    assert meta1["title"] == "Second"
+    assert "-----" not in text1
+    assert "(=^.^=)" in text1

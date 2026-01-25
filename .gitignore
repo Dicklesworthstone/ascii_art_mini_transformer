@@ -30,6 +30,7 @@ models/exported/
 
 # Generated run state / reports
 ingestion_progress.json
+ingestion_progress*.json
 quality_report.json
 python/data/data/
 
