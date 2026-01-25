@@ -259,7 +259,16 @@ def evaluate(
         labels = batch["labels"].to(config.device)
         attention_mask = batch["attention_mask"].to(config.device)
 
-        with torch.amp.autocast(device_type=config.device, dtype=_get_torch_dtype(config.dtype)):
+        # Match training behavior: only autocast on CUDA when using a reduced-precision dtype.
+        use_amp = config.dtype != "float32" and config.device == "cuda"
+        if use_amp:
+            with torch.amp.autocast(
+                device_type=config.device, dtype=_get_torch_dtype(config.dtype)
+            ):
+                _, loss = model(
+                    input_ids, attention_mask=attention_mask, labels=labels
+                )
+        else:
             _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
 
         if loss is not None:
@@ -324,6 +333,7 @@ def train(
             val_split=config.val_split,
             num_workers=config.num_workers,
             config=data_config,
+            pin_memory=config.device == "cuda",
         )
         print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
 
