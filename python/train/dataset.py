@@ -31,7 +31,6 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from model.tokenizer import AsciiTokenizer, get_tokenizer
-from model.positional_encoding import compute_2d_positions_vectorized
 from train.augmentation import AugmentationConfig, augment_art, validate_augmented_art
 
 
@@ -151,8 +150,6 @@ class AsciiArtDataset(Dataset):
             Dictionary with:
             - input_ids: Token IDs for input (all but last token)
             - labels: Token IDs for labels (all but first token)
-            - row_pos: Row positions for each token
-            - col_pos: Column positions for each token
         """
         art_id = self.ids[idx]
 
@@ -211,19 +208,6 @@ class AsciiArtDataset(Dataset):
         if len(tokens) > self.config.block_size:
             tokens = tokens[: self.config.block_size]
 
-        # Convert to tensor for 2D position computation
-        token_tensor = torch.tensor(tokens, dtype=torch.long).unsqueeze(0)
-
-        # Compute 2D positions
-        row_pos, col_pos = compute_2d_positions_vectorized(
-            token_tensor,
-            self.tokenizer.newline_token_id,
-        )
-
-        # Remove batch dimension
-        row_pos = row_pos.squeeze(0)
-        col_pos = col_pos.squeeze(0)
-
         # Model expects labels = input_ids (it does internal shifting for loss)
         input_ids = torch.tensor(tokens, dtype=torch.long)
         labels = torch.tensor(tokens, dtype=torch.long)
@@ -231,8 +215,6 @@ class AsciiArtDataset(Dataset):
         return {
             "input_ids": input_ids,
             "labels": labels,
-            "row_pos": row_pos,
-            "col_pos": col_pos,
         }
 
     def _infer_style(self, category: Optional[str], raw_text: str) -> str:
@@ -365,25 +347,12 @@ class AugmentedAsciiArtDataset(Dataset):
         if len(tokens) > config.block_size:
             tokens = tokens[: config.block_size]
 
-        # Convert to tensor for 2D position computation
-        token_tensor = torch.tensor(tokens, dtype=torch.long).unsqueeze(0)
-
-        row_pos, col_pos = compute_2d_positions_vectorized(
-            token_tensor,
-            tokenizer.newline_token_id,
-        )
-
-        row_pos = row_pos.squeeze(0)
-        col_pos = col_pos.squeeze(0)
-
         input_ids = torch.tensor(tokens, dtype=torch.long)
         labels = torch.tensor(tokens, dtype=torch.long)
 
         return {
             "input_ids": input_ids,
             "labels": labels,
-            "row_pos": row_pos,
-            "col_pos": col_pos,
         }
 
 
@@ -412,8 +381,6 @@ def collate_fn(
     # Initialize tensors with pad_id (model ignores pad_id in loss)
     input_ids = torch.full((batch_size, max_len), pad_id, dtype=torch.long)
     labels = torch.full((batch_size, max_len), pad_id, dtype=torch.long)
-    row_pos = torch.zeros(batch_size, max_len, dtype=torch.long)
-    col_pos = torch.zeros(batch_size, max_len, dtype=torch.long)
     attention_mask = torch.zeros(batch_size, max_len, dtype=torch.bool)
 
     # Fill in actual values
@@ -421,15 +388,11 @@ def collate_fn(
         seq_len = len(item["input_ids"])
         input_ids[i, :seq_len] = item["input_ids"]
         labels[i, :seq_len] = item["labels"]
-        row_pos[i, :seq_len] = item["row_pos"]
-        col_pos[i, :seq_len] = item["col_pos"]
         attention_mask[i, :seq_len] = True
 
     return {
         "input_ids": input_ids,
         "labels": labels,
-        "row_pos": row_pos,
-        "col_pos": col_pos,
         "attention_mask": attention_mask,
     }
 
@@ -625,8 +588,6 @@ if __name__ == "__main__":
             item = dataset[0]
             print(f"  input_ids shape: {item['input_ids'].shape}")
             print(f"  labels shape: {item['labels'].shape}")
-            print(f"  row_pos shape: {item['row_pos'].shape}")
-            print(f"  col_pos shape: {item['col_pos'].shape}")
 
             # Decode and show sample
             decoded = tokenizer.decode(item["input_ids"].tolist())

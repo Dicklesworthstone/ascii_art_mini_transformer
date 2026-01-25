@@ -187,43 +187,14 @@ class TestAsciiArtDataset:
         # Check all expected keys
         assert "input_ids" in item, "Item should have input_ids"
         assert "labels" in item, "Item should have labels"
-        assert "row_pos" in item, "Item should have row_pos"
-        assert "col_pos" in item, "Item should have col_pos"
 
         # Check types
         assert isinstance(item["input_ids"], torch.Tensor)
         assert isinstance(item["labels"], torch.Tensor)
-        assert isinstance(item["row_pos"], torch.Tensor)
-        assert isinstance(item["col_pos"], torch.Tensor)
 
         # Check dtypes
         assert item["input_ids"].dtype == torch.long
         assert item["labels"].dtype == torch.long
-        assert item["row_pos"].dtype == torch.long
-        assert item["col_pos"].dtype == torch.long
-
-
-def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) -> None:
-    """
-    Regression test: avoid silent infinite loop when train DataLoader yields no batches.
-
-    `create_dataloaders(..., drop_last=True)` can produce a 0-length train loader if the
-    requested `batch_size` exceeds the available train split size.
-    """
-    config = TrainingConfig(
-        db_path=str(temp_db),
-        checkpoint_dir=str(tmp_path / "checkpoints"),
-        device="cpu",
-        dtype="float32",
-        batch_size=64,
-        gradient_accumulation_steps=1,
-        max_iters=0,
-        val_split=0.2,
-        num_workers=0,
-    )
-
-    with pytest.raises(ValueError, match=r"0 batches"):
-        run_training(config)
 
     def test_input_label_same(self, temp_db: Path, tokenizer: AsciiTokenizer):
         """Test that labels equal input_ids (model does internal shifting)."""
@@ -235,17 +206,6 @@ def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) ->
         # Labels should be same as input_ids (model shifts internally)
         assert len(item["labels"]) == len(item["input_ids"])
         assert torch.equal(item["labels"], item["input_ids"])
-
-    def test_positions_shape(self, temp_db: Path, tokenizer: AsciiTokenizer):
-        """Test that position tensors have correct shape."""
-        config = DataConfig(db_path=str(temp_db), min_chars=1)
-        dataset = AsciiArtDataset(temp_db, tokenizer, config)
-
-        item = dataset[0]
-
-        # Positions should match input length
-        assert item["row_pos"].shape == item["input_ids"].shape
-        assert item["col_pos"].shape == item["input_ids"].shape
 
     def test_constraint_conditioning(self, temp_db: Path, tokenizer: AsciiTokenizer):
         """Test that constraint conditioning produces valid sequences."""
@@ -291,6 +251,29 @@ def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) ->
             assert "<HEIGHT>" not in decoded, "Should not have height constraint"
 
 
+def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) -> None:
+    """
+    Regression test: avoid silent infinite loop when train DataLoader yields no batches.
+
+    `create_dataloaders(..., drop_last=True)` can produce a 0-length train loader if the
+    requested `batch_size` exceeds the available train split size.
+    """
+    config = TrainingConfig(
+        db_path=str(temp_db),
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        device="cpu",
+        dtype="float32",
+        batch_size=64,
+        gradient_accumulation_steps=1,
+        max_iters=0,
+        val_split=0.2,
+        num_workers=0,
+    )
+
+    with pytest.raises(ValueError, match=r"0 batches"):
+        run_training(config)
+
+
 class TestCollateFn:
     """Tests for the collate function."""
 
@@ -308,8 +291,6 @@ class TestCollateFn:
 
         assert batch["input_ids"].shape == (batch_size, max_len)
         assert batch["labels"].shape == (batch_size, max_len)
-        assert batch["row_pos"].shape == (batch_size, max_len)
-        assert batch["col_pos"].shape == (batch_size, max_len)
         assert batch["attention_mask"].shape == (batch_size, max_len)
 
     def test_padding(self, temp_db: Path, tokenizer: AsciiTokenizer):
@@ -525,52 +506,6 @@ class TestAugmentation:
         # create_dataloaders uses random_split, so the loader datasets are Subset wrappers.
         assert isinstance(train_loader.dataset.dataset, AugmentedAsciiArtDataset)
         assert isinstance(val_loader.dataset.dataset, AsciiArtDataset)
-
-
-class TestPositionComputation:
-    """Tests for 2D position computation in dataset."""
-
-    def test_row_positions_increment(self, temp_db: Path, tokenizer: AsciiTokenizer):
-        """Test that row positions increment after newlines."""
-        config = DataConfig(db_path=str(temp_db), min_chars=1)
-        dataset = AsciiArtDataset(temp_db, tokenizer, config)
-
-        item = dataset[0]
-        row_pos = item["row_pos"]
-        input_ids = item["input_ids"]
-
-        # Find newline positions
-        newline_id = tokenizer.newline_token_id
-        newline_positions = (input_ids == newline_id).nonzero(as_tuple=True)[0]
-
-        if len(newline_positions) > 0:
-            # Row should increment after newline
-            first_newline = newline_positions[0].item()
-            if first_newline + 1 < len(row_pos):
-                assert row_pos[first_newline + 1] > row_pos[first_newline], (
-                    "Row should increment after newline"
-                )
-
-    def test_column_positions_reset(self, temp_db: Path, tokenizer: AsciiTokenizer):
-        """Test that column positions reset after newlines."""
-        config = DataConfig(db_path=str(temp_db), min_chars=1)
-        dataset = AsciiArtDataset(temp_db, tokenizer, config)
-
-        item = dataset[0]
-        col_pos = item["col_pos"]
-        input_ids = item["input_ids"]
-
-        # Find newline positions
-        newline_id = tokenizer.newline_token_id
-        newline_positions = (input_ids == newline_id).nonzero(as_tuple=True)[0]
-
-        if len(newline_positions) > 0:
-            # Column should reset to 0 after newline
-            first_newline = newline_positions[0].item()
-            if first_newline + 1 < len(col_pos):
-                assert col_pos[first_newline + 1] == 0, (
-                    "Column should reset to 0 after newline"
-                )
 
 
 class TestEdgeCases:
