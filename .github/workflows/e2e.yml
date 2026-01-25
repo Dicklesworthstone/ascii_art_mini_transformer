@@ -37,7 +37,7 @@ jobs:
       - name: Install minimal Python deps
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install torch safetensors
+          python3 -m pip install -r python/requirements.txt
 
       - name: Install Rust (nightly)
         uses: dtolnay/rust-toolchain@nightly
