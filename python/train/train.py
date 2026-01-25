@@ -419,7 +419,9 @@ def train(
             # Forward pass with mixed precision
             if use_amp:
                 with torch.amp.autocast(device_type=device_type, dtype=dtype):
-                    _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
+                    _, loss = model(
+                        input_ids, attention_mask=attention_mask, labels=labels
+                    )
                     loss = loss / config.gradient_accumulation_steps
             else:
                 _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)

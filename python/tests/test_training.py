@@ -907,8 +907,9 @@ class TestTrainingStep:
         optimizer.step()
 
         # Weights should have changed
-        assert not torch.equal(original_weight, model.token_embedding.weight), \
+        assert not torch.equal(original_weight, model.token_embedding.weight), (
             "Weights should update after optimizer step"
+        )
 
 
 class TestDtypeConversion:
