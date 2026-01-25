@@ -9,7 +9,6 @@ This module provides:
 
 The pipeline handles:
 - Character-level tokenization
-- 2D position computation
 - Constraint conditioning (width/height)
 - Efficient batching with padding
 """
@@ -64,8 +63,9 @@ class AsciiArtDataset(Dataset):
     """
     PyTorch Dataset for ASCII art training data.
 
-    Loads art from SQLite database, tokenizes with character-level tokenizer,
-    computes 2D positions, and optionally adds constraint conditioning.
+    Loads art from SQLite database, tokenizes with a character-level tokenizer,
+    and optionally adds constraint conditioning. 2D positions are derived from
+    the newline token inside the model's positional encoding module.
 
     Args:
         db_path: Path to SQLite database

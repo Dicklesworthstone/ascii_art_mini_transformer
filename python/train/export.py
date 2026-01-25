@@ -458,7 +458,12 @@ def export_from_checkpoint(
     # This avoids pickle issues entirely for the model weights
     try:
         checkpoint = torch.load(checkpoint_path, weights_only=True, map_location="cpu")
+        if not isinstance(checkpoint, dict):
+            raise TypeError(f"Unsupported checkpoint format: {type(checkpoint)}")
+
         model_state_dict = checkpoint.get("model", checkpoint)
+        if not isinstance(model_state_dict, dict):
+            raise TypeError(f"Unsupported model state format: {type(model_state_dict)}")
         print("Loaded weights successfully (weights_only mode)")
 
         # Prefer checkpoint metadata when available (weights_only mode keeps us out of pickle).
@@ -485,7 +490,13 @@ def export_from_checkpoint(
             checkpoint = torch.load(
                 checkpoint_path, weights_only=False, map_location="cpu"
             )
+            if not isinstance(checkpoint, dict):
+                raise TypeError(f"Unsupported checkpoint format: {type(checkpoint)}")
             model_state_dict = checkpoint.get("model", checkpoint)
+            if not isinstance(model_state_dict, dict):
+                raise TypeError(
+                    f"Unsupported model state format: {type(model_state_dict)}"
+                )
 
             # Try to extract config from checkpoint
             if "model_config" in checkpoint:
