@@ -123,7 +123,11 @@ class AsciiArtDataset(Dataset):
                 self._conn.close()
             conn = sqlite3.connect(self.db_path)
             # Defensive: prevent accidental writes from training code.
-            conn.execute("PRAGMA query_only = 1;")
+            try:
+                conn.execute("PRAGMA query_only = 1;")
+            except sqlite3.OperationalError:  # pragma: no cover
+                # Some SQLite builds may not support this pragma; training is read-only anyway.
+                pass
             self._conn = conn
             self._conn_pid = pid
         return self._conn
@@ -185,8 +189,8 @@ class AsciiArtDataset(Dataset):
 
         Returns:
             Dictionary with:
-            - input_ids: Token IDs for input (all but last token)
-            - labels: Token IDs for labels (all but first token)
+            - input_ids: Token IDs for the full example sequence
+            - labels: Same as input_ids (the model does internal shifting for loss)
         """
         art_id = self.ids[idx]
 

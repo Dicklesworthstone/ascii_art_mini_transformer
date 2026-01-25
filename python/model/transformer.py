@@ -154,16 +154,9 @@ class CausalSelfAttention(nn.Module):
                 # version errors if both `attn_mask` and `is_causal=True` are set, so we:
                 # - detect right-padding-only masks and ignore them (fast path)
                 # - fall back to the explicit attention implementation for non-right-padding masks
-                attn_keep = (
-                    attention_mask
-                    if attention_mask.dtype == torch.bool
-                    else attention_mask.to(torch.bool)
-                )
-                attn_int = attn_keep.to(torch.int8)
-                if torch.any(attn_int[:, 1:] > attn_int[:, :-1]):
-                    # Non right-padding mask (e.g., left padding / holes) -> fall back.
-                    pass
-                else:
+                attn_keep = attention_mask.bool()
+                has_01_transition = torch.any(attn_keep[:, 1:] & ~attn_keep[:, :-1])
+                if not has_01_transition:
                     attention_mask = None
 
             if attention_mask is None:
