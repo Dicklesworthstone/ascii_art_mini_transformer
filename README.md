@@ -44,6 +44,12 @@ Train (writes checkpoints under `models/checkpoints/` by default):
 .venv/bin/python -m train.train --db-path data/ascii_art.db
 ```
 
+Train with a model size preset (overridable via `--n-layer/--n-head/--n-embd/--block-size`):
+
+```bash
+.venv/bin/python -m train.train --db-path data/ascii_art.db --preset small
+```
+
 Export from a training checkpoint to a Rust-compatible safetensors directory:
 
 ```bash
