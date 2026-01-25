@@ -60,6 +60,10 @@ pub struct PositionalEncoding2D {
     col_embedding: Embedding,
     /// Token ID for newline
     newline_token_id: u32,
+    /// Maximum supported rows (for clamping)
+    max_rows: u32,
+    /// Maximum supported columns (for clamping)
+    max_cols: u32,
 }
 
 impl PositionalEncoding2D {
@@ -84,6 +88,8 @@ impl PositionalEncoding2D {
             row_embedding,
             col_embedding,
             newline_token_id: config.newline_token_id,
+            max_rows: config.max_rows.try_into().unwrap_or(u32::MAX),
+            max_cols: config.max_cols.try_into().unwrap_or(u32::MAX),
         })
     }
 
@@ -107,6 +113,10 @@ impl PositionalEncoding2D {
         // Convert to vec for processing (TODO: vectorize this)
         let token_vec: Vec<Vec<u32>> = token_ids.to_vec2()?;
 
+        // Match Python behavior: clamp indices to the embedding table bounds.
+        let max_row = self.max_rows.saturating_sub(1);
+        let max_col = self.max_cols.saturating_sub(1);
+
         let mut rows = Vec::with_capacity(batch_size);
         let mut cols = Vec::with_capacity(batch_size);
 
@@ -117,8 +127,8 @@ impl PositionalEncoding2D {
             let mut current_col: u32 = 0;
 
             for &token in batch_tokens {
-                batch_rows.push(current_row);
-                batch_cols.push(current_col);
+                batch_rows.push(current_row.min(max_row));
+                batch_cols.push(current_col.min(max_col));
 
                 if token == self.newline_token_id {
                     current_row += 1;
@@ -164,6 +174,7 @@ impl PositionalEncoding2D {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use candle_core::DType;
     use candle_core::Device;
 
     #[test]
@@ -200,5 +211,27 @@ mod tests {
         // Expected: rows = [0, 0, 0, 1, 1], cols = [0, 1, 2, 0, 1]
         assert_eq!(expected_rows, vec![0, 0, 0, 1, 1]);
         assert_eq!(expected_cols, vec![0, 1, 2, 0, 1]);
+    }
+
+    #[test]
+    fn test_forward_clamps_indices_to_bounds() {
+        let device = Device::Cpu;
+
+        let config = ModelConfig {
+            max_rows: 4,
+            max_cols: 8,
+            ..ModelConfig::small()
+        };
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let pe = PositionalEncoding2D::new(&config, vb).unwrap();
+
+        // No newlines: column indices will exceed max_cols without clamping.
+        let tokens: Vec<u32> = (0u32..32).collect();
+        let input = Tensor::new(vec![tokens], &device).unwrap();
+
+        let out = pe.forward(&input).unwrap();
+        assert_eq!(out.dims(), &[1, 32, config.n_embd]);
     }
 }
