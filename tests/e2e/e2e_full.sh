@@ -15,6 +15,9 @@ log "Log:  $LOG_FILE"
 log "=== E2E: data ==="
 "$REPO_ROOT/tests/e2e/e2e_data.sh" 2>&1 | tee -a "$LOG_FILE"
 
+log "=== E2E: train ==="
+"$REPO_ROOT/tests/e2e/e2e_train.sh" 2>&1 | tee -a "$LOG_FILE"
+
 log "=== E2E: export ==="
 "$REPO_ROOT/tests/e2e/e2e_python_export.sh" 2>&1 | tee -a "$LOG_FILE"
 
@@ -24,4 +27,3 @@ log "=== E2E: rust ==="
 log "=== ALL E2E STEPS PASSED ==="
 log "Artifacts kept under: $TMP_DIR"
 log "Note: project policy forbids auto-cleanup via rm -rf; delete $TMP_DIR manually if desired."
-

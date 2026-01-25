@@ -460,13 +460,39 @@ def export_from_checkpoint(
         model_state_dict = checkpoint.get("model", checkpoint)
         print("Loaded weights successfully (weights_only mode)")
 
-        # Infer config from state dict shapes
+        # Infer config from state dict shapes.
+        #
+        # Note: Some hyperparameters (notably n_head) cannot be inferred reliably from tensor
+        # shapes in this architecture. We still infer as a fallback, but if checkpoint metadata
+        # is available we will prefer that below.
         model_config = _infer_config_from_state_dict(
             model_state_dict,
             fallback_n_layer=n_layer,
             fallback_n_head=n_head,
             fallback_block_size=block_size,
         )
+
+        # If possible, load checkpoint metadata to recover the exact model hyperparameters.
+        #
+        # This may fail for older checkpoints that contain pickled objects with missing module
+        # paths. In that case, we keep the inferred config.
+        try:
+            full_checkpoint = torch.load(
+                checkpoint_path, weights_only=False, map_location="cpu"
+            )
+            if isinstance(full_checkpoint, dict):
+                cfg = full_checkpoint.get("model_config") or full_checkpoint.get(
+                    "training_config"
+                )
+                parsed = _extract_config_from_dict(cfg) or _extract_config_from_object(cfg)
+                if parsed is not None:
+                    model_config = parsed
+                    print("Loaded model config from checkpoint metadata")
+        except Exception as metadata_error:
+            print(
+                f"Could not load checkpoint metadata for config: {metadata_error} "
+                "(continuing with inferred config)"
+            )
 
     except Exception as weights_only_error:
         print(f"weights_only load failed: {weights_only_error}")
