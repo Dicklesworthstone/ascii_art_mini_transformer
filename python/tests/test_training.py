@@ -135,24 +135,27 @@ def temp_db(tmp_path: Path) -> Path:
     ]
 
     for art in test_arts:
-        conn.execute("""
+        conn.execute(
+            """
             INSERT INTO ascii_art
             (content_hash, raw_text, source, title, description, category,
              width, height, total_chars, non_space_chars, charset)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            art["content_hash"],
-            art["raw_text"],
-            art["source"],
-            art["title"],
-            art["description"],
-            art["category"],
-            art["width"],
-            art["height"],
-            art["total_chars"],
-            art["non_space_chars"],
-            art["charset"],
-        ))
+        """,
+            (
+                art["content_hash"],
+                art["raw_text"],
+                art["source"],
+                art["title"],
+                art["description"],
+                art["category"],
+                art["width"],
+                art["height"],
+                art["total_chars"],
+                art["non_space_chars"],
+                art["charset"],
+            ),
+        )
 
     conn.commit()
     conn.close()
@@ -259,7 +262,9 @@ def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) ->
 
         # Get an item - should have width/height tokens
         item = dataset[0]
-        decoded = tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=False)
+        decoded = tokenizer.decode(
+            item["input_ids"].tolist(), skip_special_tokens=False
+        )
 
         # Should contain <WIDTH> and <HEIGHT> tokens
         assert "<WIDTH>" in decoded, "Should have width constraint"
@@ -277,7 +282,9 @@ def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) ->
         # Get multiple items to be sure
         for i in range(min(3, len(dataset))):
             item = dataset[i]
-            decoded = tokenizer.decode(item["input_ids"].tolist(), skip_special_tokens=False)
+            decoded = tokenizer.decode(
+                item["input_ids"].tolist(), skip_special_tokens=False
+            )
 
             # Should not have constraint tokens
             assert "<WIDTH>" not in decoded, "Should not have width constraint"
@@ -388,12 +395,22 @@ class TestDataLoaderCreation:
 
         # Create loaders twice with same seed
         train1, val1 = create_dataloaders(
-            temp_db, tokenizer, batch_size=1, val_split=0.4,
-            num_workers=0, seed=42, config=config,
+            temp_db,
+            tokenizer,
+            batch_size=1,
+            val_split=0.4,
+            num_workers=0,
+            seed=42,
+            config=config,
         )
         train2, val2 = create_dataloaders(
-            temp_db, tokenizer, batch_size=1, val_split=0.4,
-            num_workers=0, seed=42, config=config,
+            temp_db,
+            tokenizer,
+            batch_size=1,
+            val_split=0.4,
+            num_workers=0,
+            seed=42,
+            config=config,
         )
 
         assert len(train1) == len(train2), "Same seed should give same split"
@@ -489,8 +506,12 @@ class TestAugmentation:
         assert desc == "desc"
         assert art == "\\))"
 
-    def test_create_dataloaders_uses_augmented_dataset(self, temp_db: Path, tokenizer: AsciiTokenizer):
-        config = DataConfig(db_path=str(temp_db), min_chars=1, augment=True, augment_prob=1.0)
+    def test_create_dataloaders_uses_augmented_dataset(
+        self, temp_db: Path, tokenizer: AsciiTokenizer
+    ):
+        config = DataConfig(
+            db_path=str(temp_db), min_chars=1, augment=True, augment_prob=1.0
+        )
 
         train_loader, val_loader = create_dataloaders(
             temp_db,
@@ -526,8 +547,9 @@ class TestPositionComputation:
             # Row should increment after newline
             first_newline = newline_positions[0].item()
             if first_newline + 1 < len(row_pos):
-                assert row_pos[first_newline + 1] > row_pos[first_newline], \
+                assert row_pos[first_newline + 1] > row_pos[first_newline], (
                     "Row should increment after newline"
+                )
 
     def test_column_positions_reset(self, temp_db: Path, tokenizer: AsciiTokenizer):
         """Test that column positions reset after newlines."""
@@ -546,8 +568,9 @@ class TestPositionComputation:
             # Column should reset to 0 after newline
             first_newline = newline_positions[0].item()
             if first_newline + 1 < len(col_pos):
-                assert col_pos[first_newline + 1] == 0, \
+                assert col_pos[first_newline + 1] == 0, (
                     "Column should reset to 0 after newline"
+                )
 
 
 class TestEdgeCases:
@@ -629,6 +652,7 @@ from train.train import (  # noqa: E402
     save_checkpoint,
     load_checkpoint,
     _get_torch_dtype,
+    _get_device_type,
 )
 from model.transformer import create_model, get_small_config  # noqa: E402
 
@@ -739,8 +763,14 @@ class TestCheckpointing:
         config = TrainingConfig(checkpoint_dir=str(tmp_path))
 
         ckpt_path = tmp_path / "test_ckpt.pt"
-        save_checkpoint(model, optimizer, iter_num=100, best_val_loss=0.5,
-                        config=config, path=ckpt_path)
+        save_checkpoint(
+            model,
+            optimizer,
+            iter_num=100,
+            best_val_loss=0.5,
+            config=config,
+            path=ckpt_path,
+        )
 
         assert ckpt_path.exists(), "Checkpoint file should exist"
 
@@ -754,8 +784,14 @@ class TestCheckpointing:
 
         # Save
         ckpt_path = tmp_path / "test_ckpt.pt"
-        save_checkpoint(model, optimizer, iter_num=100, best_val_loss=0.5,
-                        config=config, path=ckpt_path)
+        save_checkpoint(
+            model,
+            optimizer,
+            iter_num=100,
+            best_val_loss=0.5,
+            config=config,
+            path=ckpt_path,
+        )
 
         # Create new model and optimizer
         model2 = create_model(model_config)
@@ -780,8 +816,14 @@ class TestCheckpointing:
 
         # Save
         ckpt_path = tmp_path / "test_ckpt.pt"
-        save_checkpoint(model, optimizer, iter_num=100, best_val_loss=0.5,
-                        config=config, path=ckpt_path)
+        save_checkpoint(
+            model,
+            optimizer,
+            iter_num=100,
+            best_val_loss=0.5,
+            config=config,
+            path=ckpt_path,
+        )
 
         # Create new model and load
         model2 = create_model(model_config)
@@ -789,8 +831,9 @@ class TestCheckpointing:
 
         # Check weights match
         for key in original_weights:
-            assert torch.equal(original_weights[key], model2.state_dict()[key]), \
+            assert torch.equal(original_weights[key], model2.state_dict()[key]), (
                 f"Weights should match for {key}"
+            )
 
 
 class TestTrainingStep:
@@ -887,6 +930,17 @@ class TestDtypeConversion:
         """Test invalid dtype raises error."""
         with pytest.raises(ValueError):
             _get_torch_dtype("invalid")
+
+
+class TestDeviceTypeConversion:
+    """Tests for normalizing AMP/autocast device types."""
+
+    def test_cpu(self):
+        assert _get_device_type("cpu") == "cpu"
+
+    def test_cuda_index_normalizes_to_cuda(self):
+        # AMP autocast expects "cuda", not "cuda:0".
+        assert _get_device_type("cuda:0") == "cuda"
 
 
 if __name__ == "__main__":

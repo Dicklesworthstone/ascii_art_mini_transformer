@@ -25,6 +25,7 @@ from torch.utils.data import DataLoader
 
 # Add parent to path for imports
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from model.transformer import AsciiGPT, AsciiGPTConfig, create_model
@@ -264,14 +265,13 @@ def evaluate(
         attention_mask = batch["attention_mask"].to(config.device)
 
         # Match training behavior: only autocast on CUDA when using a reduced-precision dtype.
-        use_amp = config.dtype != "float32" and config.device == "cuda"
+        device_type = _get_device_type(config.device)
+        use_amp = config.dtype != "float32" and device_type == "cuda"
         if use_amp:
             with torch.amp.autocast(
-                device_type=config.device, dtype=_get_torch_dtype(config.dtype)
+                device_type=device_type, dtype=_get_torch_dtype(config.dtype)
             ):
-                _, loss = model(
-                    input_ids, attention_mask=attention_mask, labels=labels
-                )
+                _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
         else:
             _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
 
@@ -292,6 +292,11 @@ def _get_torch_dtype(dtype_str: str) -> torch.dtype:
         return torch.bfloat16
     else:
         raise ValueError(f"Unknown dtype: {dtype_str}")
+
+
+def _get_device_type(device: str) -> str:
+    """Return the torch device type string for AMP/autocast (e.g., 'cuda' for 'cuda:0')."""
+    return torch.device(device).type
 
 
 def train(
@@ -363,16 +368,19 @@ def train(
     iter_num = 0
     best_val_loss = float("inf")
     if config.resume_from:
-        iter_num, best_val_loss = load_checkpoint(
-            config.resume_from, model, optimizer
-        )
+        iter_num, best_val_loss = load_checkpoint(config.resume_from, model, optimizer)
 
     # Get dtype for autocast
     dtype = _get_torch_dtype(config.dtype)
-    use_amp = config.dtype != "float32" and config.device == "cuda"
+    device_type = _get_device_type(config.device)
+    use_amp = config.dtype != "float32" and device_type == "cuda"
 
     # Create gradient scaler for float16 (not needed for bfloat16)
-    scaler = torch.cuda.amp.GradScaler() if config.dtype == "float16" else None
+    scaler = (
+        torch.cuda.amp.GradScaler()
+        if config.dtype == "float16" and device_type == "cuda"
+        else None
+    )
 
     # Training loop
     model.train()
@@ -410,15 +418,11 @@ def train(
 
             # Forward pass with mixed precision
             if use_amp:
-                with torch.amp.autocast(device_type=config.device, dtype=dtype):
-                    _, loss = model(
-                        input_ids, attention_mask=attention_mask, labels=labels
-                    )
+                with torch.amp.autocast(device_type=device_type, dtype=dtype):
+                    _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
                     loss = loss / config.gradient_accumulation_steps
             else:
-                _, loss = model(
-                    input_ids, attention_mask=attention_mask, labels=labels
-                )
+                _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
                 loss = loss / config.gradient_accumulation_steps
 
             # Backward pass
@@ -447,11 +451,13 @@ def train(
             t1 = time.time()
             dt = t1 - t0
             t0 = t1
-            avg_loss = running_loss / config.log_interval if iter_num > 0 else running_loss
+            avg_loss = (
+                running_loss / config.log_interval if iter_num > 0 else running_loss
+            )
             running_loss = 0.0
             print(
                 f"iter {iter_num:6d} | loss {avg_loss:.4f} | "
-                f"lr {lr:.2e} | {dt*1000:.1f}ms"
+                f"lr {lr:.2e} | {dt * 1000:.1f}ms"
             )
 
         # Evaluation
