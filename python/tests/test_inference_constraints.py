@@ -50,3 +50,50 @@ def test_compute_row_col_from_tokens_matches_decoder() -> None:
     row, col = compute_row_col_from_tokens(seq, tok)
     assert (row, col) == (2, 1)
 
+
+def test_width_zero_disables_width_constraint() -> None:
+    tok = _Tok()
+    dec = ConstrainedDecoder(max_width=0, max_height=10, max_tokens=100)
+
+    assert dec.forced_token_id(tok) is None
+    for token_id in (10, 11, 12, 13, 14):
+        dec.update(token_id, tok)
+        assert dec.forced_token_id(tok) is None
+
+
+def test_height_zero_disables_height_constraint() -> None:
+    tok = _Tok()
+    dec = ConstrainedDecoder(max_width=3, max_height=0, max_tokens=100)
+
+    # Height=0 should not force EOS, and width should still force newline.
+    for token_id in (10, 11, 12):
+        dec.update(token_id, tok)
+    assert dec.current_col == 3
+    assert dec.forced_token_id(tok) == tok.newline_token_id
+
+
+def test_apply_constraints_masks_special_tokens_when_supported() -> None:
+    try:
+        import torch
+    except ModuleNotFoundError:  # pragma: no cover
+        return
+
+    from python.model.tokenizer import AsciiTokenizer
+
+    tok = AsciiTokenizer()
+    dec = ConstrainedDecoder(max_width=10, max_height=10, max_tokens=100)
+
+    vocab = tok.vocab_size
+    logits = torch.zeros((vocab,), dtype=torch.float32)
+
+    # Make a special token attractive.
+    width_id = tok.get_special_token_id("<WIDTH>")
+    logits[width_id] = 100.0
+
+    # Make a printable token less attractive.
+    token_a = tok.encode("A")[0]
+    logits[token_a] = 1.0
+
+    masked = dec.apply_constraints_to_logits(logits, tok)
+    assert not torch.isfinite(masked[width_id]), "special tokens should be masked out"
+    assert torch.isfinite(masked[token_a]), "printable tokens should remain allowed"

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
+from typing import Callable, Optional, Protocol, Sequence, cast
 
 
 class TokenizerLike(Protocol):
-    newline_token_id: int
-    eos_token_id: int
+    @property
+    def newline_token_id(self) -> int: ...
+
+    @property
+    def eos_token_id(self) -> int: ...
 
 
 @dataclass
@@ -33,15 +36,22 @@ class ConstrainedDecoder:
         1) EOS if max_tokens exceeded or height exceeded
         2) newline if width exceeded (unless we're already at the last allowed row)
         """
-        if self.total_tokens >= self.max_tokens:
+        if self.max_tokens > 0 and self.total_tokens >= self.max_tokens:
             return tokenizer.eos_token_id
 
         # If we've exceeded height, only EOS is allowed.
-        if self.current_row >= self.max_height:
+        if self.max_height > 0 and self.current_row >= self.max_height:
             return tokenizer.eos_token_id
 
+        if self.max_width <= 0:
+            return None
+
         # If we are on the last allowed row and already hit width, end instead of adding a new empty row.
-        if self.current_row >= max(self.max_height - 1, 0) and self.current_col >= self.max_width:
+        if (
+            self.max_height > 0
+            and self.current_row >= self.max_height - 1
+            and self.current_col >= self.max_width
+        ):
             return tokenizer.eos_token_id
 
         if self.current_col >= self.max_width:
@@ -59,21 +69,33 @@ class ConstrainedDecoder:
         """
         Apply constraints to a 1D logits tensor by masking disallowed tokens to -inf.
 
-        This method requires torch at runtime but is written to avoid importing
-        torch at module import time.
+        When no hard constraint is active, this also masks non-output special tokens
+        (if the tokenizer provides `is_special_token`), matching Rust inference behavior.
         """
         allowed = self.allowed_token_ids(tokenizer)
-        if allowed is None:
+        if allowed is not None:
+            masked = logits.new_full(logits.shape, float("-inf"))
+            for token_id in allowed:
+                masked[int(token_id)] = logits[int(token_id)]
+            return masked
+
+        is_special_token = getattr(tokenizer, "is_special_token", None)
+        if not callable(is_special_token):
             return logits
 
-        try:
-            import torch  # type: ignore
-        except ModuleNotFoundError as exc:  # pragma: no cover
-            raise ModuleNotFoundError("torch is required to mask logits") from exc
+        is_special_fn = cast(Callable[[int], bool], is_special_token)
+        masked = logits.clone()
 
-        masked = torch.full_like(logits, float("-inf"))
-        for token_id in allowed:
-            masked[token_id] = logits[token_id]
+        vocab_size = int(masked.shape[0])
+        newline_token_id = int(tokenizer.newline_token_id)
+        eos_token_id = int(tokenizer.eos_token_id)
+
+        for token_id in range(vocab_size):
+            if token_id == newline_token_id or token_id == eos_token_id:
+                continue
+            if is_special_fn(token_id):
+                masked[token_id] = float("-inf")
+
         return masked
 
     def update(self, token_id: int, tokenizer: TokenizerLike) -> None:
@@ -88,7 +110,9 @@ class ConstrainedDecoder:
         return self.forced_token_id(tokenizer) == tokenizer.eos_token_id
 
 
-def compute_row_col_from_tokens(token_ids: Sequence[int], tokenizer: TokenizerLike) -> tuple[int, int]:
+def compute_row_col_from_tokens(
+    token_ids: Sequence[int], tokenizer: TokenizerLike
+) -> tuple[int, int]:
     """
     Compute (row, col) position after consuming `token_ids`, using the same
     semantics as ConstrainedDecoder.update().
@@ -102,4 +126,3 @@ def compute_row_col_from_tokens(token_ids: Sequence[int], tokenizer: TokenizerLi
         else:
             col += 1
     return row, col
-
