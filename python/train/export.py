@@ -659,6 +659,7 @@ def print_export_summary(export_dir: str | Path) -> None:
 
 if __name__ == "__main__":
     import argparse
+    from dataclasses import replace
 
     parser = argparse.ArgumentParser(description="Export model to safetensors")
     parser.add_argument(
@@ -693,6 +694,37 @@ if __name__ == "__main__":
         default=None,
         help="Validate an existing export directory",
     )
+    parser.add_argument(
+        "--preset",
+        type=str,
+        default="small",
+        choices=["small", "medium", "large"],
+        help="Model size preset used when exporting a fresh (untrained) model",
+    )
+    parser.add_argument(
+        "--n-layer",
+        type=int,
+        default=None,
+        help="Override number of layers for fresh model export (no --checkpoint)",
+    )
+    parser.add_argument(
+        "--n-head",
+        type=int,
+        default=None,
+        help="Override number of attention heads for fresh model export (no --checkpoint)",
+    )
+    parser.add_argument(
+        "--n-embd",
+        type=int,
+        default=None,
+        help="Override embedding dimension for fresh model export (no --checkpoint)",
+    )
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=None,
+        help="Override context length for fresh model export (no --checkpoint)",
+    )
 
     args = parser.parse_args()
 
@@ -708,9 +740,29 @@ if __name__ == "__main__":
     else:
         # Quick test with untrained model
         print("No checkpoint specified, testing with fresh model...")
-        from model.transformer import get_small_config
+        from model.transformer import (
+            get_large_config,
+            get_medium_config,
+            get_small_config,
+        )
 
-        config = get_small_config()
+        presets = {
+            "small": get_small_config,
+            "medium": get_medium_config,
+            "large": get_large_config,
+        }
+        base_config = presets[args.preset]()
+        overrides = {}
+        if args.n_layer is not None:
+            overrides["n_layer"] = args.n_layer
+        if args.n_head is not None:
+            overrides["n_head"] = args.n_head
+        if args.n_embd is not None:
+            overrides["n_embd"] = args.n_embd
+        if args.block_size is not None:
+            overrides["block_size"] = args.block_size
+
+        config = replace(base_config, **overrides) if overrides else base_config
         model = create_model(config)
         tokenizer = get_tokenizer()
 
