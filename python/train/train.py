@@ -79,6 +79,11 @@ class TrainingConfig:
     num_workers: int = 4
     val_split: float = 0.1
 
+    # Export (optional auto-export after training)
+    export_on_finish: bool = False
+    export_dir: str = "models/exported"
+    export_dtype: str = "float32"  # 'float32', 'float16', or 'bfloat16'
+
     def __post_init__(self):
         """Validate and setup configuration."""
         # Create checkpoint directory
@@ -545,6 +550,23 @@ def train(
         Path(config.checkpoint_dir) / "final.pt",
     )
 
+    # Optional: export model after training
+    if config.export_on_finish:
+        from train.export import export_from_checkpoint
+
+        final_ckpt = Path(config.checkpoint_dir) / "final.pt"
+        print(f"\nExporting model to {config.export_dir}...")
+        export_from_checkpoint(
+            checkpoint_path=final_ckpt,
+            output_dir=config.export_dir,
+            export_dtype=config.export_dtype,
+            n_layer=config.n_layer,
+            n_head=config.n_head,
+            n_embd=config.n_embd,
+            block_size=config.block_size,
+        )
+        print(f"Export complete: {config.export_dir}")
+
     return model
 
 
@@ -619,6 +641,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--compile", action="store_true", help="Use torch.compile")
     parser.add_argument("--num-workers", type=int, default=4)
 
+    # Export (auto-export after training)
+    parser.add_argument(
+        "--export-on-finish",
+        action="store_true",
+        help="Export model to safetensors after training completes",
+    )
+    parser.add_argument(
+        "--export-dir",
+        type=str,
+        default="models/exported",
+        help="Directory for exported model (default: models/exported)",
+    )
+    parser.add_argument(
+        "--export-dtype",
+        type=str,
+        default="float32",
+        choices=["float32", "float16", "bfloat16"],
+        help="Export dtype (default: float32)",
+    )
+
     return parser
 
 
@@ -666,6 +708,9 @@ def config_from_args(args: argparse.Namespace) -> TrainingConfig:
         dtype=args.dtype,
         compile_model=args.compile,
         num_workers=args.num_workers,
+        export_on_finish=args.export_on_finish,
+        export_dir=args.export_dir,
+        export_dtype=args.export_dtype,
     )
 
 
