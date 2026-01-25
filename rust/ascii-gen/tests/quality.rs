@@ -5,7 +5,7 @@
 
 use ascii_gen::inference::generate::GenerationConfig;
 use ascii_gen::model::{AsciiGPT, ModelConfig};
-use ascii_gen::tokenizer::AsciiTokenizer;
+use ascii_gen::tokenizer::{AsciiTokenizer, SEP_ID};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -18,6 +18,18 @@ const BENCHMARK_PROMPTS: &[&str] = &[
     "sunset", "mountain", // Abstract (test creativity)
     "pattern", "border",
 ];
+
+/// Decode only the art portion of the token sequence (after SEP).
+///
+/// The full sequence is: `<BOS> <WIDTH> ... <SEP> {art} <EOS>`
+/// We only want to decode the {art} portion.
+fn decode_art_only(tokens: &[u32], tok: AsciiTokenizer) -> String {
+    let art_start = tokens
+        .iter()
+        .rposition(|&t| t == SEP_ID)
+        .map_or(0, |idx| idx + 1);
+    tok.decode(&tokens[art_start..])
+}
 
 /// Load model from the test weights path if available.
 fn load_test_model() -> Option<AsciiGPT> {
@@ -71,7 +83,7 @@ fn test_width_constraint_strict() {
             );
 
             if let Ok(tokens) = result {
-                let art = tok.decode(&tokens);
+                let art = decode_art_only(&tokens, tok);
                 for line in art.lines() {
                     if line.len() > width {
                         violations += 1;
@@ -120,7 +132,7 @@ fn test_height_constraint_strict() {
             );
 
             if let Ok(tokens) = result {
-                let art = tok.decode(&tokens);
+                let art = decode_art_only(&tokens, tok);
                 let line_count = art.lines().count();
                 if line_count > max_lines {
                     violations += 1;
@@ -155,7 +167,7 @@ fn test_character_set_constraint() {
             ascii_gen::inference::generate::generate_constrained(&model, &prompt_tokens, &cfg, tok);
 
         if let Ok(tokens) = result {
-            let art = tok.decode(&tokens);
+            let art = decode_art_only(&tokens, tok);
             for ch in art.chars() {
                 if ch != '\n' && !(' '..='~').contains(&ch) {
                     non_ascii_count += 1;
@@ -200,7 +212,7 @@ fn test_output_diversity() {
             );
 
             if let Ok(tokens) = result {
-                outputs.insert(tok.decode(&tokens));
+                outputs.insert(decode_art_only(&tokens, tok));
             }
         }
 
@@ -233,7 +245,7 @@ fn test_structural_validity() {
             ascii_gen::inference::generate::generate_constrained(&model, &prompt_tokens, &cfg, tok);
 
         if let Ok(tokens) = result {
-            let art = tok.decode(&tokens);
+            let art = decode_art_only(&tokens, tok);
             let lines: Vec<_> = art.lines().collect();
             let non_whitespace: usize = art.chars().filter(|c| !c.is_whitespace()).count();
 
@@ -328,7 +340,7 @@ fn test_benchmark_all_prompts() {
 
         match result {
             Ok(tokens) => {
-                let art = tok.decode(&tokens);
+                let art = decode_art_only(&tokens, tok);
                 if !art.trim().is_empty() {
                     success_count += 1;
                     eprintln!(
