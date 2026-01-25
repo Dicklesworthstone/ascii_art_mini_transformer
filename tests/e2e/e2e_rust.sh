@@ -17,13 +17,24 @@ cd "$REPO_ROOT/rust/ascii-gen"
 cargo test 2>&1 | tee -a "$LOG_FILE"
 cargo clippy --all-targets -- -D warnings 2>&1 | tee -a "$LOG_FILE"
 
-log "Running Rust CLI smoke generation using crossval fixtures..."
+MODEL_PATH="${E2E_MODEL_PATH:-test_data/crossval/model.safetensors}"
+MAX_CHARS="${E2E_MAX_CHARS:-}"
+if [[ -z "$MAX_CHARS" ]]; then
+  if [[ -n "${E2E_MODEL_PATH:-}" ]]; then
+    MAX_CHARS=80
+  else
+    MAX_CHARS=400
+  fi
+fi
+log "Running Rust CLI smoke generation..."
+log "Model: $MODEL_PATH"
+log "Smoke limits: width=40 lines=20 max_chars=$MAX_CHARS"
 OUT_FILE="$TMP_DIR/generated.txt"
 cargo run --quiet -- \
-  --model test_data/crossval/model.safetensors \
+  --model "$MODEL_PATH" \
   --width 40 \
   --max-lines 20 \
-  --max-chars 400 \
+  --max-chars "$MAX_CHARS" \
   --temperature 0 \
   --top-k 0 \
   --top-p 1 \

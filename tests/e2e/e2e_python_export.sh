@@ -23,7 +23,9 @@ log "Log:  $LOG_FILE"
 log "Python: $PYTHON_BIN"
 
 export PYTHONPATH="$REPO_ROOT/python"
-OUT_DIR="$TMP_DIR/exported"
+OUT_DIR="${1:-$TMP_DIR/exported}"
+mkdir -p "$OUT_DIR"
+log "Export dir: $OUT_DIR"
 
 log "Running export smoke test (fresh tiny model + int8/int4 exports)..."
 "$PYTHON_BIN" -m train.export --output-dir "$OUT_DIR" --quantize both 2>&1 | tee -a "$LOG_FILE"

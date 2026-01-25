@@ -18,11 +18,13 @@ log "=== E2E: data ==="
 log "=== E2E: train ==="
 "$REPO_ROOT/tests/e2e/e2e_train.sh" 2>&1 | tee -a "$LOG_FILE"
 
+EXPORT_DIR="$TMP_DIR/exported"
+
 log "=== E2E: export ==="
-"$REPO_ROOT/tests/e2e/e2e_python_export.sh" 2>&1 | tee -a "$LOG_FILE"
+"$REPO_ROOT/tests/e2e/e2e_python_export.sh" "$EXPORT_DIR" 2>&1 | tee -a "$LOG_FILE"
 
 log "=== E2E: rust ==="
-"$REPO_ROOT/tests/e2e/e2e_rust.sh" 2>&1 | tee -a "$LOG_FILE"
+E2E_MODEL_PATH="$EXPORT_DIR/model.safetensors" E2E_MAX_CHARS=80 "$REPO_ROOT/tests/e2e/e2e_rust.sh" 2>&1 | tee -a "$LOG_FILE"
 
 log "=== ALL E2E STEPS PASSED ==="
 log "Artifacts kept under: $TMP_DIR"
