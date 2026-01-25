@@ -33,7 +33,12 @@ import requests
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "python"))
 
-from data.db import connect, initialize, insert_ascii_art  # noqa: E402
+from data.db import (  # noqa: E402
+    connect,
+    initialize,
+    insert_ascii_art,
+    normalize_newlines,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -244,10 +249,11 @@ _BINARY_EXTENSIONS: set[str] = {
 
 def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
     base_url = _normalize_base_url(config.base_url)
+    load_progress = config.progress_path is not None
     persist_progress = config.progress_path is not None and not config.dry_run
     state = (
         ProgressState.load(config.progress_path)
-        if persist_progress and config.progress_path is not None
+        if load_progress and config.progress_path is not None
         else ProgressState(processed_dirs=set(), processed_files=set())
     )
 
@@ -355,6 +361,14 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
                 raw_text = payload.decode("cp437", errors="replace")
                 if config.strip_ansi:
                     raw_text = _ANSI_ESCAPE_RE.sub("", raw_text)
+                raw_text = normalize_newlines(raw_text)
+
+                if not raw_text.strip():
+                    state.skipped += 1
+                    state.processed_files.add(full)
+                    if persist_progress and config.progress_path is not None:
+                        state.save(config.progress_path)
+                    continue
 
                 record: dict[str, Any] = {
                     "raw_text": raw_text,

@@ -398,20 +398,27 @@ def generate_dataset(
             try:
                 # Insert with upsert (handles dedup and computes metadata)
                 # Use retry logic to handle database locks from concurrent processes
-                result = retry_on_lock(
-                    lambda: upsert_ascii_art(
+                # Capture loop variables via default arguments to avoid closure issues.
+                def do_upsert(
+                    rt=raw_text,
+                    fn=font_name,
+                    desc=description,
+                    em=extra_meta,
+                ):
+                    return upsert_ascii_art(
                         conn,
-                        raw_text=raw_text,
+                        raw_text=rt,
                         source="figlet",
-                        source_id=f"{font_name}:{extra_meta['input_text']}",
-                        title=f"{extra_meta['input_text']} ({font_name})",
-                        description=description,
+                        source_id=f"{fn}:{em['input_text']}",
+                        title=f"{em['input_text']} ({fn})",
+                        description=desc,
                         category="banner",
-                        subcategory=font_name,
-                        tags=["figlet", "banner", "text", font_name, extra_meta["type"]],
+                        subcategory=fn,
+                        tags=["figlet", "banner", "text", fn, em["type"]],
                         is_valid=True,
                     )
-                )
+
+                result = retry_on_lock(do_upsert)
 
                 stats.total_generated += 1
                 if result.inserted:
@@ -572,10 +579,13 @@ def main():
     # Save broken fonts report
     if total_stats.broken_fonts:
         report_path = Path(__file__).resolve().parent / "figlet_broken_fonts.json"
-        with open(report_path, "w") as f:
+        with open(report_path, "w") as outfile:
             json.dump(
-                [{"font": f, "reason": r} for f, r in total_stats.broken_fonts],
-                f,
+                [
+                    {"font": font, "reason": reason}
+                    for font, reason in total_stats.broken_fonts
+                ],
+                outfile,
                 indent=2,
             )
         logger.info(f"Broken fonts report saved to: {report_path}")
