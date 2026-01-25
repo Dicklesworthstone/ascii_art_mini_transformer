@@ -199,6 +199,29 @@ class TestAsciiArtDataset:
         assert item["row_pos"].dtype == torch.long
         assert item["col_pos"].dtype == torch.long
 
+
+def test_training_raises_on_empty_train_loader(temp_db: Path, tmp_path: Path) -> None:
+    """
+    Regression test: avoid silent infinite loop when train DataLoader yields no batches.
+
+    `create_dataloaders(..., drop_last=True)` can produce a 0-length train loader if the
+    requested `batch_size` exceeds the available train split size.
+    """
+    config = TrainingConfig(
+        db_path=str(temp_db),
+        checkpoint_dir=str(tmp_path / "checkpoints"),
+        device="cpu",
+        dtype="float32",
+        batch_size=64,
+        gradient_accumulation_steps=1,
+        max_iters=0,
+        val_split=0.2,
+        num_workers=0,
+    )
+
+    with pytest.raises(ValueError, match=r"0 batches"):
+        run_training(config)
+
     def test_input_label_same(self, temp_db: Path, tokenizer: AsciiTokenizer):
         """Test that labels equal input_ids (model does internal shifting)."""
         config = DataConfig(db_path=str(temp_db), min_chars=1)
@@ -601,6 +624,7 @@ class TestEdgeCases:
 
 from train.train import (  # noqa: E402
     TrainingConfig,
+    train as run_training,
     get_lr,
     save_checkpoint,
     load_checkpoint,

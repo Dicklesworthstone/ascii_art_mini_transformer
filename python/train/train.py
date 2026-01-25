@@ -84,7 +84,11 @@ class TrainingConfig:
         Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
 
         # Validate dtype
-        if self.dtype == "bfloat16" and not torch.cuda.is_bf16_supported():
+        if (
+            self.device.startswith("cuda")
+            and self.dtype == "bfloat16"
+            and not torch.cuda.is_bf16_supported()
+        ):
             print("Warning: bfloat16 not supported, falling back to float16")
             self.dtype = "float16"
 
@@ -333,9 +337,14 @@ def train(
             val_split=config.val_split,
             num_workers=config.num_workers,
             config=data_config,
-            pin_memory=config.device == "cuda",
+            pin_memory=config.device.startswith("cuda"),
         )
         print(f"Train batches: {len(train_loader)}, Val batches: {len(val_loader)}")
+        if len(train_loader) == 0:
+            raise ValueError(
+                "Train loader has 0 batches (likely batch_size too large for dataset). "
+                "Reduce batch_size and/or val_split."
+            )
 
     # Create optimizer
     optimizer = torch.optim.AdamW(

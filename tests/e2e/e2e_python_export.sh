@@ -28,7 +28,15 @@ mkdir -p "$OUT_DIR"
 log "Export dir: $OUT_DIR"
 
 log "Running export smoke test (fresh tiny model + int8/int4 exports)..."
-"$PYTHON_BIN" -m train.export --output-dir "$OUT_DIR" --quantize both 2>&1 | tee -a "$LOG_FILE"
+"$PYTHON_BIN" -m train.export \
+  --output-dir "$OUT_DIR" \
+  --quantize both \
+  --preset small \
+  --n-layer 2 \
+  --n-head 2 \
+  --n-embd 64 \
+  --block-size 256 \
+  2>&1 | tee -a "$LOG_FILE"
 
 log "Verifying expected artifacts exist..."
 test -f "$OUT_DIR/model.safetensors"

@@ -435,7 +435,7 @@ def create_dataloaders(
     num_workers: int = 4,
     seed: int = 42,
     config: Optional[DataConfig] = None,
-    pin_memory: bool = True,
+    pin_memory: bool = False,
     augment_train: bool = False,
     augment_prob: float = 0.5,
 ) -> tuple[DataLoader, DataLoader]:
@@ -543,7 +543,7 @@ def create_single_loader(
     shuffle: bool = True,
     num_workers: int = 4,
     config: Optional[DataConfig] = None,
-    pin_memory: bool = True,
+    pin_memory: bool = False,
 ) -> DataLoader:
     """
     Create a single DataLoader (for inference/debugging).
