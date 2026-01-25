@@ -172,7 +172,14 @@ def insert_ascii_art(
     artist: str | None = None,
     is_valid: bool = True,
     quality_score: float | None = None,
+    skip_empty: bool = True,
 ) -> int | None:
+    """
+    Insert ASCII art, returning the row ID if inserted, or None if duplicate/skipped.
+
+    Args:
+        skip_empty: If True (default), return None for empty/whitespace-only text.
+    """
     res = upsert_ascii_art(
         conn,
         raw_text=raw_text,
@@ -186,7 +193,10 @@ def insert_ascii_art(
         artist=artist,
         is_valid=is_valid,
         quality_score=quality_score,
+        skip_empty=skip_empty,
     )
+    if res is None:
+        return None  # Skipped (empty content)
     return res.id if res.inserted else None
 
 
@@ -204,8 +214,24 @@ def upsert_ascii_art(
     artist: str | None = None,
     is_valid: bool = True,
     quality_score: float | None = None,
-) -> UpsertResult:
+    skip_empty: bool = True,
+) -> UpsertResult | None:
+    """
+    Insert or ignore an ASCII art entry.
+
+    Args:
+        skip_empty: If True (default), return None for empty/whitespace-only text
+                    instead of inserting an empty row.
+
+    Returns:
+        UpsertResult on success, or None if skipped due to empty content.
+    """
     normalized = normalize_newlines(raw_text)
+
+    # Skip empty or whitespace-only content
+    if skip_empty and not normalized.strip():
+        return None
+
     meta = compute_metadata(normalized)
 
     tags_json = json.dumps(list(tags), ensure_ascii=False) if tags is not None else None

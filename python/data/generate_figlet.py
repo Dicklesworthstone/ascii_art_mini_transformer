@@ -421,6 +421,9 @@ def generate_dataset(
                 result = retry_on_lock(do_upsert)
 
                 stats.total_generated += 1
+                if result is None:
+                    stats.errors += 1
+                    continue
                 if result.inserted:
                     stats.inserted += 1
                 else:
