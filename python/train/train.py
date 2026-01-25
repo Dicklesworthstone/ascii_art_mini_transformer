@@ -255,6 +255,9 @@ def evaluate(
     model.eval()
     losses = []
     max_iters = max_iters or config.eval_iters
+    dtype = _get_torch_dtype(config.dtype)
+    device_type = _get_device_type(config.device)
+    use_amp = config.dtype != "float32" and device_type == "cuda"
 
     for i, batch in enumerate(val_loader):
         if i >= max_iters:
@@ -265,12 +268,8 @@ def evaluate(
         attention_mask = batch["attention_mask"].to(config.device)
 
         # Match training behavior: only autocast on CUDA when using a reduced-precision dtype.
-        device_type = _get_device_type(config.device)
-        use_amp = config.dtype != "float32" and device_type == "cuda"
         if use_amp:
-            with torch.amp.autocast(
-                device_type=device_type, dtype=_get_torch_dtype(config.dtype)
-            ):
+            with torch.amp.autocast(device_type=device_type, dtype=dtype):
                 _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
         else:
             _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
@@ -511,7 +510,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     # Data args
     parser.add_argument("--db-path", type=str, default="data/ascii_art.db")
-    parser.add_argument("--block-size", type=int, default=None)
+    parser.add_argument(
+        "--block-size",
+        type=int,
+        default=None,
+        help="Override context length (default from --preset)",
+    )
     parser.add_argument("--val-split", type=float, default=0.1)
 
     # Model args
@@ -522,9 +526,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         choices=["small", "medium", "large"],
         help="Model size preset (sets n_layer/n_head/n_embd/block_size defaults)",
     )
-    parser.add_argument("--n-layer", type=int, default=None)
-    parser.add_argument("--n-head", type=int, default=None)
-    parser.add_argument("--n-embd", type=int, default=None)
+    parser.add_argument(
+        "--n-layer", type=int, default=None, help="Override layer count (default from --preset)"
+    )
+    parser.add_argument(
+        "--n-head", type=int, default=None, help="Override head count (default from --preset)"
+    )
+    parser.add_argument(
+        "--n-embd", type=int, default=None, help="Override embedding dim (default from --preset)"
+    )
     parser.add_argument("--dropout", type=float, default=0.1)
 
     # Training args

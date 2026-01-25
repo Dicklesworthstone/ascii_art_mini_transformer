@@ -740,10 +740,11 @@ class TestTrainCliParsing:
             ]
         )
 
-        assert config.n_layer == 4
-        assert config.n_head == 4
-        assert config.n_embd == 256
-        assert config.block_size == 1024
+        expected = get_small_config()
+        assert config.n_layer == expected.n_layer
+        assert config.n_head == expected.n_head
+        assert config.n_embd == expected.n_embd
+        assert config.block_size == expected.block_size
 
     def test_preset_allows_overrides(self, tmp_path: Path) -> None:
         ckpt_dir = tmp_path / "checkpoints"
@@ -765,8 +766,9 @@ class TestTrainCliParsing:
         )
 
         assert config.n_layer == 2
-        assert config.n_head == 4
-        assert config.n_embd == 256
+        expected = get_small_config()
+        assert config.n_head == expected.n_head
+        assert config.n_embd == expected.n_embd
         assert config.block_size == 128
 
 
