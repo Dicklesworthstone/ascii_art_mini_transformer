@@ -145,6 +145,41 @@ class CausalSelfAttention(nn.Module):
         v = v.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
 
         # Compute attention scores
+        # Prefer PyTorch scaled-dot-product attention when available to avoid materializing
+        # the full (T, T) attention matrix (important for memory at large block sizes).
+        if hasattr(F, "scaled_dot_product_attention"):
+            if attention_mask is not None:
+                # For causal models with right-padding, an explicit padding mask is unnecessary:
+                # earlier tokens never attend to later (padded) positions. SDPA in our PyTorch
+                # version errors if both `attn_mask` and `is_causal=True` are set, so we:
+                # - detect right-padding-only masks and ignore them (fast path)
+                # - fall back to the explicit attention implementation for non-right-padding masks
+                attn_keep = (
+                    attention_mask
+                    if attention_mask.dtype == torch.bool
+                    else attention_mask.to(torch.bool)
+                )
+                attn_int = attn_keep.to(torch.int8)
+                if torch.any(attn_int[:, 1:] > attn_int[:, :-1]):
+                    # Non right-padding mask (e.g., left padding / holes) -> fall back.
+                    pass
+                else:
+                    attention_mask = None
+
+            if attention_mask is None:
+                y = F.scaled_dot_product_attention(
+                    q,
+                    k,
+                    v,
+                    attn_mask=None,
+                    dropout_p=self.dropout if self.training else 0.0,
+                    is_causal=True,
+                )
+                y = y.transpose(1, 2).contiguous().view(B, T, C)
+                y = self.resid_dropout(self.c_proj(y))
+                return y
+
+        # Fallback: explicit attention matrix (older PyTorch).
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
 
         # Apply causal mask
