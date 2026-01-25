@@ -653,6 +653,7 @@ from train.train import (  # noqa: E402
     load_checkpoint,
     _get_torch_dtype,
     _get_device_type,
+    parse_cli_config,
 )
 from model.transformer import create_model, get_small_config  # noqa: E402
 
@@ -683,6 +684,34 @@ class TestTrainingConfig:
         assert model_config.n_layer == 4
         assert model_config.n_head == 4
         assert model_config.n_embd == 256
+
+
+class TestTrainCliParsing:
+    def test_parse_cli_config_sets_hyperparams(self, tmp_path: Path) -> None:
+        ckpt_dir = tmp_path / "checkpoints"
+        config = parse_cli_config([
+            "--checkpoint-dir", str(ckpt_dir),
+            "--device", "cpu",
+            "--dtype", "float32",
+            "--val-split", "0.25",
+            "--lr-decay-iters", "123",
+            "--min-lr", "0.00012",
+            "--weight-decay", "0.2",
+            "--grad-clip", "0.9",
+            "--eval-iters", "7",
+            "--log-interval", "11",
+        ])
+
+        assert config.checkpoint_dir == str(ckpt_dir)
+        assert config.device == "cpu"
+        assert config.dtype == "float32"
+        assert config.val_split == pytest.approx(0.25)
+        assert config.lr_decay_iters == 123
+        assert config.min_lr == pytest.approx(0.00012)
+        assert config.weight_decay == pytest.approx(0.2)
+        assert config.grad_clip == pytest.approx(0.9)
+        assert config.eval_iters == 7
+        assert config.log_interval == 11
 
 
 class TestLearningRateSchedule:

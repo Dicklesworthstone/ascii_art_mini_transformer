@@ -505,13 +505,14 @@ def train(
     return model
 
 
-def main():
-    """CLI entry point."""
+def build_arg_parser() -> argparse.ArgumentParser:
+    """Build the CLI argument parser."""
     parser = argparse.ArgumentParser(description="Train ASCII Art Transformer")
 
     # Data args
     parser.add_argument("--db-path", type=str, default="data/ascii_art.db")
     parser.add_argument("--block-size", type=int, default=2048)
+    parser.add_argument("--val-split", type=float, default=0.1)
 
     # Model args
     parser.add_argument("--n-layer", type=int, default=6)
@@ -525,6 +526,14 @@ def main():
     parser.add_argument("--learning-rate", type=float, default=6e-4)
     parser.add_argument("--max-iters", type=int, default=100000)
     parser.add_argument("--warmup-iters", type=int, default=2000)
+    parser.add_argument("--lr-decay-iters", type=int, default=100000)
+    parser.add_argument("--min-lr", type=float, default=6e-5)
+    parser.add_argument("--weight-decay", type=float, default=0.1)
+    parser.add_argument("--grad-clip", type=float, default=1.0)
+
+    # Evaluation
+    parser.add_argument("--eval-iters", type=int, default=200)
+    parser.add_argument("--log-interval", type=int, default=10)
 
     # Checkpointing
     parser.add_argument("--checkpoint-dir", type=str, default="models/checkpoints")
@@ -540,12 +549,15 @@ def main():
     parser.add_argument("--compile", action="store_true", help="Use torch.compile")
     parser.add_argument("--num-workers", type=int, default=4)
 
-    args = parser.parse_args()
+    return parser
 
-    # Create config from args
-    config = TrainingConfig(
+
+def config_from_args(args: argparse.Namespace) -> TrainingConfig:
+    """Create a TrainingConfig from parsed CLI args."""
+    return TrainingConfig(
         db_path=args.db_path,
         block_size=args.block_size,
+        val_split=args.val_split,
         n_layer=args.n_layer,
         n_head=args.n_head,
         n_embd=args.n_embd,
@@ -555,16 +567,33 @@ def main():
         learning_rate=args.learning_rate,
         max_iters=args.max_iters,
         warmup_iters=args.warmup_iters,
+        lr_decay_iters=args.lr_decay_iters,
+        min_lr=args.min_lr,
+        weight_decay=args.weight_decay,
+        grad_clip=args.grad_clip,
         checkpoint_dir=args.checkpoint_dir,
         resume_from=args.resume_from,
         save_interval=args.save_interval,
         eval_interval=args.eval_interval,
+        eval_iters=args.eval_iters,
+        log_interval=args.log_interval,
         device=args.device,
         dtype=args.dtype,
         compile_model=args.compile,
         num_workers=args.num_workers,
     )
 
+
+def parse_cli_config(argv: list[str] | None = None) -> TrainingConfig:
+    """Parse CLI args into a TrainingConfig (does not start training)."""
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+    return config_from_args(args)
+
+
+def main() -> None:
+    """CLI entry point."""
+    config = parse_cli_config()
     train(config)
 
 
