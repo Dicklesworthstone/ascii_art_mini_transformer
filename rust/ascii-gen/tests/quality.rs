@@ -7,6 +7,7 @@ use ascii_gen::inference::generate::GenerationConfig;
 use ascii_gen::model::{AsciiGPT, ModelConfig};
 use ascii_gen::tokenizer::{AsciiTokenizer, SEP_ID};
 use std::collections::HashSet;
+use std::fs;
 use std::path::Path;
 
 /// Standard benchmark prompts for consistent evaluation.
@@ -34,12 +35,31 @@ fn decode_art_only(tokens: &[u32], tok: AsciiTokenizer) -> String {
 /// Load model from the test weights path if available.
 fn load_test_model() -> Option<AsciiGPT> {
     let weights_path = Path::new("test_data/model.safetensors");
-    if !weights_path.exists() {
+    let config_path = Path::new("test_data/config.json");
+
+    if !weights_path.exists() || !config_path.exists() {
         return None;
     }
 
+    // Parse config.json to get model dimensions
+    let config_str = fs::read_to_string(config_path).ok()?;
+    let config_json: serde_json::Value = serde_json::from_str(&config_str).ok()?;
+
+    let config = ModelConfig {
+        vocab_size: config_json["vocab_size"].as_u64()? as usize,
+        block_size: config_json["block_size"].as_u64()? as usize,
+        n_layer: config_json["n_layer"].as_u64()? as usize,
+        n_head: config_json["n_head"].as_u64()? as usize,
+        n_embd: config_json["n_embd"].as_u64()? as usize,
+        max_rows: config_json["max_rows"].as_u64().unwrap_or(100) as usize,
+        max_cols: config_json["max_cols"].as_u64().unwrap_or(200) as usize,
+        newline_token_id: config_json["newline_token_id"].as_u64().unwrap_or(7) as u32,
+        pad_token_id: config_json["pad_token_id"].as_u64().unwrap_or(0) as u32,
+        bos_token_id: config_json["bos_token_id"].as_u64().unwrap_or(1) as u32,
+        eos_token_id: config_json["eos_token_id"].as_u64().unwrap_or(2) as u32,
+    };
+
     let device = candle_core::Device::Cpu;
-    let config = ModelConfig::default();
     ascii_gen::model::load_model(weights_path, config, &device).ok()
 }
 
