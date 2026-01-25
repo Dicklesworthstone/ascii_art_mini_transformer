@@ -487,9 +487,16 @@ def export_from_checkpoint(
 
         # Try loading full checkpoint (may fail with pickle issues)
         try:
-            checkpoint = torch.load(
-                checkpoint_path, weights_only=False, map_location="cpu"
-            )
+            try:
+                checkpoint = torch.load(
+                    checkpoint_path, weights_only=False, map_location="cpu"
+                )
+            except TypeError as e:
+                # Older PyTorch versions may not support the `weights_only` kwarg at all.
+                # In unsafe mode, fall back to legacy pickle loading if needed.
+                if "weights_only" not in str(e):
+                    raise
+                checkpoint = torch.load(checkpoint_path, map_location="cpu")
             if not isinstance(checkpoint, dict):
                 raise TypeError(f"Unsupported checkpoint format: {type(checkpoint)}")
             model_state_dict = checkpoint.get("model", checkpoint)
