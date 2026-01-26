@@ -22,7 +22,7 @@ __all__ = [
 # Positional encoding depends on torch; keep tokenizer imports usable even
 # when torch isn't installed (common during early repo bootstrap).
 try:
-    from .positional_encoding import (  # type: ignore
+    from .positional_encoding import (
         LearnedPositionalEncoding2D,
         SinusoidalPositionalEncoding2D,
         PositionalEncoding2DModule,
@@ -45,7 +45,7 @@ else:
 
 # Transformer model also depends on torch
 try:
-    from .transformer import (  # type: ignore
+    from .transformer import (
         AsciiGPT,
         AsciiGPTConfig,
         CausalSelfAttention,

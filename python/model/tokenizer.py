@@ -85,7 +85,7 @@ class AsciiTokenizer:
     at the start of the vocabulary.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the tokenizer with vocabulary mappings."""
         self._char_to_id: dict[str, int] = {}
         self._id_to_char: dict[int, str] = {}
@@ -405,7 +405,7 @@ def get_tokenizer() -> AsciiTokenizer:
     return AsciiTokenizer()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     # Quick test
     tokenizer = AsciiTokenizer()
     print(f"Vocabulary size: {tokenizer.vocab_size}")

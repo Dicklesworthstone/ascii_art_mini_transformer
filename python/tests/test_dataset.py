@@ -6,7 +6,6 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 import torch
 
@@ -396,8 +395,7 @@ class TestAugmentedDataset(unittest.TestCase):
         )
 
         # Get augmented item - dimensions in tokens should reflect padded art
-        with patch("random.random", return_value=0.0):  # Ensure augmentation happens
-            item = aug_dataset[0]
+        item = aug_dataset[0]
 
         # The item should be valid
         self.assertGreater(len(item["input_ids"]), 0)

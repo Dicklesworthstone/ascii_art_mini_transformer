@@ -31,7 +31,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from model.tokenizer import AsciiTokenizer, get_tokenizer
-from train.augmentation import AugmentationConfig, augment_art, validate_augmented_art
+from train.augmentation import (
+    AugmentationConfig,
+    RandomLike,
+    augment_art,
+    validate_augmented_art,
+)
 
 
 @dataclass
@@ -299,10 +304,12 @@ class AugmentedAsciiArtDataset(Dataset):
         base_dataset: AsciiArtDataset,
         augmentation_config: AugmentationConfig | None = None,
         augment_prob: float = 0.5,
+        rng: RandomLike | None = None,
     ):
         self.base_dataset = base_dataset
         self.augment_prob = augment_prob
         self.augmentation_config = augmentation_config or AugmentationConfig()
+        self._rng = rng
 
     def __len__(self) -> int:
         return len(self.base_dataset)
@@ -315,8 +322,10 @@ class AugmentedAsciiArtDataset(Dataset):
         before tokenization. This is less efficient than the base dataset
         but necessary for augmentation to work properly.
         """
+        rng = random if self._rng is None else self._rng
+
         # Check if we should augment
-        if random.random() > self.augment_prob:
+        if rng.random() > self.augment_prob:
             return self.base_dataset[idx]
 
         # Get the art ID and fetch raw data
@@ -341,7 +350,7 @@ class AugmentedAsciiArtDataset(Dataset):
 
         # Apply augmentation
         augmented_art, augmented_desc = augment_art(
-            raw_text, description, self.augmentation_config
+            raw_text, description, self.augmentation_config, rng=rng
         )
         if not validate_augmented_art(raw_text, augmented_art):
             return self.base_dataset[idx]
@@ -352,14 +361,14 @@ class AugmentedAsciiArtDataset(Dataset):
         # Decide whether to add constraints (reuse base config settings)
         config = self.base_dataset.config
         add_constraints = (
-            config.add_constraints and random.random() < config.constraint_prob
+            config.add_constraints and rng.random() < config.constraint_prob
         )
 
         tokenizer = self.base_dataset.tokenizer
 
         if add_constraints:
-            include_width = random.random() < config.width_prob
-            include_height = random.random() < config.height_prob
+            include_width = rng.random() < config.width_prob
+            include_height = rng.random() < config.height_prob
 
             # Recalculate dimensions for augmented art
             aug_width, aug_height = _compute_width_height(augmented_art)

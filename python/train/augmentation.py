@@ -15,7 +15,19 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Protocol, Sequence, TypeVar, cast
+
+T = TypeVar("T")
+
+
+class RandomLike(Protocol):
+    def random(self) -> float: ...
+
+    def randint(self, a: int, b: int) -> int: ...
+
+    def choice(self, seq: Sequence[T]) -> T: ...
+
+    def sample(self, population: Sequence[T], k: int) -> list[T]: ...
 
 
 @dataclass
@@ -84,7 +96,12 @@ DESCRIPTION_TEMPLATES = [
 ]
 
 
-def augment_padding(art: str, config: AugmentationConfig) -> str:
+def augment_padding(
+    art: str,
+    config: AugmentationConfig,
+    *,
+    rng: RandomLike | None = None,
+) -> str:
     """
     Add random whitespace padding to the art.
 
@@ -98,7 +115,8 @@ def augment_padding(art: str, config: AugmentationConfig) -> str:
     Returns:
         Art with random padding added
     """
-    if random.random() > config.padding_prob:
+    rng = cast(RandomLike, random) if rng is None else rng
+    if rng.random() > config.padding_prob:
         return art
 
     lines = art.split("\n")
@@ -106,9 +124,9 @@ def augment_padding(art: str, config: AugmentationConfig) -> str:
         return art
 
     # Random padding amounts
-    left_pad = random.randint(0, config.max_padding_chars)
-    top_pad = random.randint(0, config.max_padding_chars // 2)
-    bottom_pad = random.randint(0, config.max_padding_chars // 2)
+    left_pad = rng.randint(0, config.max_padding_chars)
+    top_pad = rng.randint(0, config.max_padding_chars // 2)
+    bottom_pad = rng.randint(0, config.max_padding_chars // 2)
 
     # Add left padding to each line
     if left_pad > 0:
@@ -120,7 +138,12 @@ def augment_padding(art: str, config: AugmentationConfig) -> str:
     return "\n".join(lines)
 
 
-def augment_char_substitution(art: str, config: AugmentationConfig) -> str:
+def augment_char_substitution(
+    art: str,
+    config: AugmentationConfig,
+    *,
+    rng: RandomLike | None = None,
+) -> str:
     """
     Substitute some characters with visually similar alternatives.
 
@@ -134,7 +157,8 @@ def augment_char_substitution(art: str, config: AugmentationConfig) -> str:
     Returns:
         Art with some characters substituted
     """
-    if random.random() > config.char_substitution_prob:
+    rng = cast(RandomLike, random) if rng is None else rng
+    if rng.random() > config.char_substitution_prob:
         return art
 
     # Pick a random subset of substitutable chars to replace
@@ -143,12 +167,12 @@ def augment_char_substitution(art: str, config: AugmentationConfig) -> str:
         return art
 
     # Pick 1-3 character types to substitute
-    num_to_sub = min(len(chars_to_sub), random.randint(1, 3))
-    selected = random.sample(chars_to_sub, num_to_sub)
+    num_to_sub = min(len(chars_to_sub), rng.randint(1, 3))
+    selected = rng.sample(chars_to_sub, num_to_sub)
 
     result = art
     for char in selected:
-        replacement = random.choice(CHAR_SUBSTITUTIONS[char])
+        replacement = rng.choice(CHAR_SUBSTITUTIONS[char])
         result = result.replace(char, replacement)
 
     return result
@@ -184,7 +208,12 @@ def can_flip_horizontally(art: str) -> bool:
     return total > 0 and flippable / total > 0.1
 
 
-def augment_horizontal_flip(art: str, config: AugmentationConfig) -> str:
+def augment_horizontal_flip(
+    art: str,
+    config: AugmentationConfig,
+    *,
+    rng: RandomLike | None = None,
+) -> str:
     """
     Flip art horizontally for data augmentation.
 
@@ -198,7 +227,8 @@ def augment_horizontal_flip(art: str, config: AugmentationConfig) -> str:
     Returns:
         Horizontally flipped art (or original if not suitable)
     """
-    if random.random() > config.horizontal_flip_prob:
+    rng = cast(RandomLike, random) if rng is None else rng
+    if rng.random() > config.horizontal_flip_prob:
         return art
 
     if not can_flip_horizontally(art):
@@ -223,7 +253,12 @@ def augment_horizontal_flip(art: str, config: AugmentationConfig) -> str:
     return "\n".join(flipped_lines)
 
 
-def augment_description(description: str, config: AugmentationConfig) -> str:
+def augment_description(
+    description: str,
+    config: AugmentationConfig,
+    *,
+    rng: RandomLike | None = None,
+) -> str:
     """
     Paraphrase the description for variety.
 
@@ -234,7 +269,8 @@ def augment_description(description: str, config: AugmentationConfig) -> str:
     Returns:
         Paraphrased description
     """
-    if random.random() > config.description_paraphrase_prob:
+    rng = cast(RandomLike, random) if rng is None else rng
+    if rng.random() > config.description_paraphrase_prob:
         return description
 
     # Extract the main noun/concept from the description
@@ -253,7 +289,7 @@ def augment_description(description: str, config: AugmentationConfig) -> str:
     noun = nouns[-1]  # Take the last content word
 
     # Apply a random template
-    template = random.choice(DESCRIPTION_TEMPLATES)
+    template = rng.choice(DESCRIPTION_TEMPLATES)
 
     # Handle a/an
     if "{noun}" in template:
@@ -268,7 +304,12 @@ def augment_description(description: str, config: AugmentationConfig) -> str:
     return description
 
 
-def augment_noise(art: str, config: AugmentationConfig) -> str:
+def augment_noise(
+    art: str,
+    config: AugmentationConfig,
+    *,
+    rng: RandomLike | None = None,
+) -> str:
     """
     Add very light noise to the art.
 
@@ -282,7 +323,8 @@ def augment_noise(art: str, config: AugmentationConfig) -> str:
     Returns:
         Art with light noise added
     """
-    if random.random() > config.noise_prob:
+    rng = cast(RandomLike, random) if rng is None else rng
+    if rng.random() > config.noise_prob:
         return art
 
     chars = list(art)
@@ -298,11 +340,11 @@ def augment_noise(art: str, config: AugmentationConfig) -> str:
         return art
 
     # Corrupt random characters
-    to_corrupt = random.sample(candidates, min(num_to_corrupt, len(candidates)))
+    to_corrupt = rng.sample(candidates, min(num_to_corrupt, len(candidates)))
     noise_chars = list("*#@+-.,:;'\"")
 
     for idx in to_corrupt:
-        chars[idx] = random.choice(noise_chars)
+        chars[idx] = rng.choice(noise_chars)
 
     return "".join(chars)
 
@@ -311,6 +353,8 @@ def augment_art(
     art: str,
     description: str,
     config: Optional[AugmentationConfig] = None,
+    *,
+    rng: RandomLike | None = None,
 ) -> tuple[str, str]:
     """
     Apply all augmentations to an art piece.
@@ -326,14 +370,16 @@ def augment_art(
     if config is None:
         config = AugmentationConfig()
 
+    rng = cast(RandomLike, random) if rng is None else rng
+
     # Apply augmentations in order
     # Note: order matters - some augmentations interact
-    art = augment_horizontal_flip(art, config)  # Do flip before substitution
-    art = augment_char_substitution(art, config)
-    art = augment_padding(art, config)
-    art = augment_noise(art, config)  # Noise last
+    art = augment_horizontal_flip(art, config, rng=rng)  # Do flip before substitution
+    art = augment_char_substitution(art, config, rng=rng)
+    art = augment_padding(art, config, rng=rng)
+    art = augment_noise(art, config, rng=rng)  # Noise last
 
-    description = augment_description(description, config)
+    description = augment_description(description, config, rng=rng)
 
     return art, description
 

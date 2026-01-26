@@ -17,7 +17,7 @@ from __future__ import annotations
 import math
 import sys
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 import torch
 import torch.nn as nn
@@ -51,7 +51,7 @@ class AsciiGPTConfig:
     bos_token_id: int = 1
     eos_token_id: int = 2
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate configuration."""
         assert self.n_embd % self.n_head == 0, "n_embd must be divisible by n_head"
 
@@ -94,7 +94,7 @@ class CausalSelfAttention(nn.Module):
     Uses flash attention when available for efficiency.
     """
 
-    def __init__(self, config: AsciiGPTConfig):
+    def __init__(self, config: AsciiGPTConfig) -> None:
         super().__init__()
         self.config = config
         self.n_head = config.n_head
@@ -113,6 +113,7 @@ class CausalSelfAttention(nn.Module):
         self.resid_dropout = nn.Dropout(config.dropout)
 
         # Causal mask
+        self.mask: torch.Tensor
         self.register_buffer(
             "mask",
             torch.tril(torch.ones(config.block_size, config.block_size)).view(
@@ -138,8 +139,8 @@ class CausalSelfAttention(nn.Module):
         B, T, C = x.size()
 
         # Calculate query, key, values
-        qkv = self.c_attn(x)
-        q, k, v = qkv.split(self.n_embd, dim=2)
+        qkv = cast(torch.Tensor, self.c_attn(x))
+        q, k, v = qkv.chunk(3, dim=2)
 
         # Reshape for multi-head attention
         q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2)
@@ -163,7 +164,8 @@ class CausalSelfAttention(nn.Module):
                 is_causal=True,
             )
             y = y.transpose(1, 2).contiguous().view(B, T, C)
-            y = self.resid_dropout(self.c_proj(y))
+            y = cast(torch.Tensor, self.c_proj(y))
+            y = cast(torch.Tensor, self.resid_dropout(y))
             return y
 
         # Fallback: explicit attention matrix (older PyTorch).
@@ -187,7 +189,8 @@ class CausalSelfAttention(nn.Module):
         y = y.transpose(1, 2).contiguous().view(B, T, C)
 
         # Output projection
-        y = self.resid_dropout(self.c_proj(y))
+        y = cast(torch.Tensor, self.c_proj(y))
+        y = cast(torch.Tensor, self.resid_dropout(y))
         return y
 
 
@@ -505,7 +508,7 @@ def get_large_config() -> AsciiGPTConfig:
     )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     # Quick test
     print("Testing AsciiGPT Model")
     print("=" * 50)

@@ -38,7 +38,7 @@ class LearnedPositionalEncoding2D(nn.Module):
         d_model: int,
         max_rows: int = 100,
         max_cols: int = 200,
-    ):
+    ) -> None:
         super().__init__()
         self.d_model = d_model
         self.max_rows = max_rows
@@ -102,7 +102,7 @@ class SinusoidalPositionalEncoding2D(nn.Module):
         d_model: int,
         max_rows: int = 100,
         max_cols: int = 200,
-    ):
+    ) -> None:
         super().__init__()
         self.d_model = d_model
         self.max_rows = max_rows
@@ -112,6 +112,8 @@ class SinusoidalPositionalEncoding2D(nn.Module):
         row_pe = self._compute_sinusoidal(max_rows, d_model // 2)
         col_pe = self._compute_sinusoidal(max_cols, d_model - d_model // 2)
 
+        self.row_pe: torch.Tensor
+        self.col_pe: torch.Tensor
         # Register as buffers (not parameters)
         self.register_buffer("row_pe", row_pe)
         self.register_buffer("col_pe", col_pe)
@@ -289,9 +291,10 @@ class PositionalEncoding2DModule(nn.Module):
         max_cols: int = 200,
         newline_token_id: int = 7,
         learned: bool = True,
-    ):
+    ) -> None:
         super().__init__()
         self.newline_token_id = newline_token_id
+        self.pos_encoding: LearnedPositionalEncoding2D | SinusoidalPositionalEncoding2D
 
         if learned:
             self.pos_encoding = LearnedPositionalEncoding2D(d_model, max_rows, max_cols)
@@ -311,7 +314,7 @@ class PositionalEncoding2DModule(nn.Module):
             Positional embeddings of shape (batch_size, seq_len, d_model)
         """
         rows, cols = compute_2d_positions_vectorized(token_ids, self.newline_token_id)
-        return self.pos_encoding(rows, cols)
+        return self.pos_encoding.forward(rows, cols)
 
 
 # Factory function for creating positional encoding
@@ -344,7 +347,7 @@ def create_positional_encoding(
     )
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     # Quick test
     print("Testing 2D Positional Encoding")
     print("=" * 50)
