@@ -38,7 +38,7 @@ fn quantized_safetensors_without_quant_config_returns_helpful_error() {
     let scale = TensorView::new(Dtype::F32, vec![1], &scale_bytes).expect("scale tensor view");
     tensors.insert("blocks.0.attn.c_attn.weight.scale".to_string(), scale);
 
-    let bytes = serialize(tensors.iter(), &None).expect("serialize");
+    let bytes = serialize(tensors.iter(), None).expect("serialize");
 
     let mut path: PathBuf = std::env::temp_dir();
     let uniq = SystemTime::now()

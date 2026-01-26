@@ -55,7 +55,7 @@ pub(super) fn find_quantized_tensor_name(st: &SafeTensors<'_>) -> Option<String>
     st.names()
         .into_iter()
         .find(|name| is_quantized_tensor_name(name))
-        .cloned()
+        .map(str::to_string)
 }
 
 fn is_quantized_tensor_name(name: &str) -> bool {
@@ -119,7 +119,7 @@ pub(super) fn load_quantized_model(
         }
         // Quantized exports shouldn't include the original `{name}.weight` tensors for quantized
         // layers, but avoid accidentally overriding a dequantized tensor if they do.
-        if quantized_keys.contains(name.as_str()) {
+        if quantized_keys.contains(name) {
             continue;
         }
 
@@ -134,7 +134,7 @@ pub(super) fn load_quantized_model(
         };
         let t = Tensor::from_raw_buffer(view.data(), dtype, view.shape(), device)
             .with_context(|| format!("load tensor {name:?}"))?;
-        tensors.insert(name.clone(), t);
+        tensors.insert(name.to_string(), t);
     }
 
     for (name, meta) in &scheme.quantized_layers {
