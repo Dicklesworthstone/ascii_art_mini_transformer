@@ -83,13 +83,13 @@ def _parse_sauce_record(record: bytes) -> SauceMetadata:
     author = _field(42, 20)
     group = _field(62, 20)
     date = _field(82, 8)
-    comment_count = record[104]
 
     # Comments are stored *before* the SAUCE record:
     #  "COMNT" (5 bytes) + N*64 bytes of comment text (CP437).
+    #
+    # We only populate comments if a COMNT block is actually present and parseable.
+    # Some files set comment_count but omit the COMNT payload; in that case, keep [].
     comments: list[str] = []
-    if comment_count:
-        comments = [""] * int(comment_count)
 
     return SauceMetadata(
         title=title, author=author, group=group, date=date, comments=comments

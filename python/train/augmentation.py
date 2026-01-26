@@ -245,9 +245,7 @@ def augment_horizontal_flip(
     for line in lines:
         # Pad to max width, flip, then strip trailing spaces
         padded = line.ljust(max_width)
-        flipped = ""
-        for c in reversed(padded):
-            flipped += FLIP_CHARS.get(c, c)
+        flipped = "".join(FLIP_CHARS.get(c, c) for c in reversed(padded))
         flipped_lines.append(flipped.rstrip())
 
     return "\n".join(flipped_lines)

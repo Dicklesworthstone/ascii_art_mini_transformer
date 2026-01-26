@@ -171,8 +171,12 @@ def _path_category_parts(
     if not parts:
         return None, None
     if parts[0] == "gallery":
-        # /gallery is just the entry point.
-        return None, None
+        # Support both:
+        # - /gallery (entry point)
+        # - /gallery/<category>/<subcategory> (alternate site layout)
+        if len(parts) == 1:
+            return None, None
+        parts = parts[1:]
     category = parts[0]
     subcategory = parts[1] if len(parts) > 1 else None
     return category, subcategory

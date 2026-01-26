@@ -95,6 +95,17 @@ def test_strip_sauce_with_comments_block() -> None:
     assert meta.comments == comments
 
 
+def test_strip_sauce_with_missing_comments_block_keeps_empty_comments() -> None:
+    body = b"payload\n"
+    sauce = _make_sauce_record(comment_count=2)
+    payload = body + b"\x1a" + sauce
+
+    stripped, meta = strip_sauce(payload)
+    assert stripped == body.rstrip(b"\x1a")
+    assert meta is not None
+    assert meta.comments == []
+
+
 def test_scrape_16colors_crawl_writes_progress_and_jsonl(tmp_path: Path) -> None:
     base_url = "https://16colo.rs/"
     year_url = "https://16colo.rs/year/1990"

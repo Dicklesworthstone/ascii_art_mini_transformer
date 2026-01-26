@@ -89,6 +89,13 @@ class TestAsciiArtPathCategoryParts(unittest.TestCase):
         self.assertEqual(cat, "animals")
         self.assertEqual(subcat, "cats")
 
+    def test_gallery_prefixed_paths_are_supported(self) -> None:
+        cat, subcat = _path_category_parts(
+            "https://example.com/gallery/animals/cats", "https://example.com/"
+        )
+        self.assertEqual(cat, "animals")
+        self.assertEqual(subcat, "cats")
+
     def test_different_netloc_returns_none(self) -> None:
         cat, subcat = _path_category_parts(
             "https://other.com/animals", "https://example.com/"
