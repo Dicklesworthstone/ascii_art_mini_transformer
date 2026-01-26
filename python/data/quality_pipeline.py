@@ -15,7 +15,7 @@ import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, TypeVar
+from typing import Any, Callable, TypeVar
 
 T = TypeVar("T")
 
@@ -79,7 +79,7 @@ class QualityReport:
     size_buckets: dict[str, int] = field(default_factory=Counter)
     near_duplicates_found: int = 0
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "total_checked": self.total_checked,
             "valid": self.valid,
@@ -191,7 +191,8 @@ def run_validation(
 
     for i, art_id in enumerate(all_ids):
         # Use retry for database reads
-        art = retry_on_lock(lambda aid=art_id: get_ascii_art_by_id(conn, aid))
+        aid = art_id
+        art = retry_on_lock(lambda: get_ascii_art_by_id(conn, aid))
         if art is None:
             continue
 
@@ -210,11 +211,8 @@ def run_validation(
 
         # Update database if needed (with retry)
         if not dry_run and is_valid != art.is_valid:
-            retry_on_lock(
-                lambda aid=art_id, iv=is_valid: update_ascii_art(
-                    conn, art_id=aid, fields={"is_valid": iv}
-                )
-            )
+            iv = is_valid
+            retry_on_lock(lambda: update_ascii_art(conn, art_id=aid, fields={"is_valid": iv}))
 
         # Collect statistics
         report.charset_distribution[art.charset] += 1
