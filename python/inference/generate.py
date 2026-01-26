@@ -74,7 +74,9 @@ def generate(
 
     input_ids = torch.tensor([list(input_token_ids)], dtype=torch.long, device=dev)
 
-    decoder = ConstrainedDecoder(max_width=width, max_height=height, max_tokens=max_tokens)
+    decoder = ConstrainedDecoder(
+        max_width=width, max_height=height, max_tokens=max_tokens
+    )
     generated: list[int] = []
 
     for _ in range(max_tokens):
@@ -196,7 +198,9 @@ def generate_golden_tests(
     try:
         import torch  # type: ignore
     except ModuleNotFoundError as exc:  # pragma: no cover
-        raise ModuleNotFoundError("torch is required for golden test generation") from exc
+        raise ModuleNotFoundError(
+            "torch is required for golden test generation"
+        ) from exc
 
     output_dir.mkdir(parents=True, exist_ok=True)
     model.eval()
@@ -246,4 +250,3 @@ def generate_golden_tests(
         out_paths.append(path)
 
     return out_paths
-

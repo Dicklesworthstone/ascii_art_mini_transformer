@@ -87,7 +87,9 @@ class ProgressState:
             "duplicates": self.duplicates,
             "errors": self.errors,
         }
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -104,7 +106,9 @@ def _same_site(base_url: str, url: str) -> bool:
 def _rate_limit(delay_seconds: float, jitter_seconds: float) -> None:
     if delay_seconds <= 0:
         return
-    sleep_for = delay_seconds + (random.random() * jitter_seconds if jitter_seconds > 0 else 0.0)
+    sleep_for = delay_seconds + (
+        random.random() * jitter_seconds if jitter_seconds > 0 else 0.0
+    )
     time.sleep(sleep_for)
 
 
@@ -155,7 +159,9 @@ def _extract_page_tags(soup: BeautifulSoup) -> list[str]:
     return [t for t in tags if t]
 
 
-def _path_category_parts(url: str, base_url: str) -> tuple[Optional[str], Optional[str]]:
+def _path_category_parts(
+    url: str, base_url: str
+) -> tuple[Optional[str], Optional[str]]:
     parsed = urlparse(url)
     base = urlparse(base_url)
     if parsed.netloc != base.netloc:
@@ -263,7 +269,9 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
     if not config.dry_run:
         config.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
         progress = ProgressState.load(config.progress_path)
-        logger.info("Loaded progress: %d pages processed", len(progress.processed_pages))
+        logger.info(
+            "Loaded progress: %d pages processed", len(progress.processed_pages)
+        )
     else:
         progress = ProgressState(processed_pages=set())
         logger.info("Dry run: progress tracking disabled.")
@@ -330,7 +338,9 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
                 if config.max_items is not None:
                     remaining = config.max_items - items_seen
                     if remaining <= 0:
-                        logger.info("Reached --max-items=%d; stopping.", config.max_items)
+                        logger.info(
+                            "Reached --max-items=%d; stopping.", config.max_items
+                        )
                         break
                     cards = cards[:remaining]
 
@@ -346,7 +356,9 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
                                 conn,
                                 raw_text=str(entry["raw_text"]),
                                 source=str(entry["source"]),
-                                source_id=str(entry["source_id"]) if entry.get("source_id") else None,
+                                source_id=str(entry["source_id"])
+                                if entry.get("source_id")
+                                else None,
                                 title=entry.get("title"),
                                 description=entry.get("description"),
                                 category=entry.get("category"),
@@ -403,9 +415,15 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Scrape the ASCII Art Archive gallery pages")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base URL (default: %(default)s)")
-    parser.add_argument("--db-path", default=str(ROOT / "data" / "ascii_art.db"), help="SQLite DB path")
+    parser = argparse.ArgumentParser(
+        description="Scrape the ASCII Art Archive gallery pages"
+    )
+    parser.add_argument(
+        "--base-url", default=DEFAULT_BASE_URL, help="Base URL (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--db-path", default=str(ROOT / "data" / "ascii_art.db"), help="SQLite DB path"
+    )
     parser.add_argument(
         "--output-jsonl",
         default=str(ROOT / "data" / "raw" / "asciiart_eu.jsonl"),
@@ -416,21 +434,33 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=str(ROOT / "data" / "raw" / "asciiart_eu_progress.json"),
         help="Progress JSON path for resumability",
     )
-    parser.add_argument("--delay-seconds", type=float, default=1.5, help="Base delay between requests")
-    parser.add_argument("--jitter-seconds", type=float, default=0.5, help="Random jitter added to delay")
-    parser.add_argument("--max-pages", type=int, default=None, help="Stop after N pages (debugging)")
-    parser.add_argument("--max-items", type=int, default=None, help="Stop after N items (debugging)")
+    parser.add_argument(
+        "--delay-seconds", type=float, default=1.5, help="Base delay between requests"
+    )
+    parser.add_argument(
+        "--jitter-seconds", type=float, default=0.5, help="Random jitter added to delay"
+    )
+    parser.add_argument(
+        "--max-pages", type=int, default=None, help="Stop after N pages (debugging)"
+    )
+    parser.add_argument(
+        "--max-items", type=int, default=None, help="Stop after N items (debugging)"
+    )
     parser.add_argument(
         "--no-db",
         action="store_true",
         help="Only write JSONL (do not insert into the SQLite database)",
     )
-    parser.add_argument("--dry-run", action="store_true", help="Do not write JSONL or DB (just crawl)")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Do not write JSONL or DB (just crawl)"
+    )
     return parser
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     args = _build_arg_parser().parse_args()
 
     config = ScrapeConfig(

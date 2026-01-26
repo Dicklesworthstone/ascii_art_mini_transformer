@@ -3,6 +3,7 @@ Data Quality Pipeline for ASCII Art Database.
 
 Performs validation, deduplication, and quality analysis on ingested ASCII art.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -26,6 +27,7 @@ from data.db import connect, get_ascii_art_by_id, iter_ascii_art_ids, update_asc
 # Optional: rapidfuzz for near-duplicate detection
 try:
     from rapidfuzz import fuzz
+
     HAS_RAPIDFUZZ = True
 except ImportError:
     HAS_RAPIDFUZZ = False
@@ -54,8 +56,10 @@ def retry_on_lock(
             return func()
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and attempt < max_retries - 1:
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                logger.debug(f"Database locked, retrying in {delay:.1f}s (attempt {attempt + 1})")
+                delay = min(base_delay * (2**attempt), max_delay)
+                logger.debug(
+                    f"Database locked, retrying in {delay:.1f}s (attempt {attempt + 1})"
+                )
                 time.sleep(delay)
             else:
                 raise
@@ -65,6 +69,7 @@ def retry_on_lock(
 @dataclass
 class QualityReport:
     """Summary of quality pipeline run."""
+
     total_checked: int = 0
     valid: int = 0
     invalid: int = 0
@@ -206,7 +211,9 @@ def run_validation(
         # Update database if needed (with retry)
         if not dry_run and is_valid != art.is_valid:
             retry_on_lock(
-                lambda aid=art_id, iv=is_valid: update_ascii_art(conn, art_id=aid, fields={"is_valid": iv})
+                lambda aid=art_id, iv=is_valid: update_ascii_art(
+                    conn, art_id=aid, fields={"is_valid": iv}
+                )
             )
 
         # Collect statistics
@@ -248,7 +255,9 @@ def find_near_duplicates(
         logger.warning("rapidfuzz not available, skipping near-duplicate detection")
         return []
 
-    logger.info(f"Finding near-duplicates (sample={sample_size}, threshold={threshold}%)...")
+    logger.info(
+        f"Finding near-duplicates (sample={sample_size}, threshold={threshold}%)..."
+    )
 
     # Sample valid art pieces
     cursor = conn.execute(
@@ -258,7 +267,7 @@ def find_near_duplicates(
         ORDER BY RANDOM()
         LIMIT ?
         """,
-        (sample_size,)
+        (sample_size,),
     )
     samples = [(row[0], row[1]) for row in cursor.fetchall()]
 
@@ -266,10 +275,10 @@ def find_near_duplicates(
 
     # Compare within batches to limit O(n^2) complexity
     for batch_start in range(0, len(samples), batch_size):
-        batch = samples[batch_start:batch_start + batch_size]
+        batch = samples[batch_start : batch_start + batch_size]
 
         for i, (id1, text1) in enumerate(batch):
-            for j, (id2, text2) in enumerate(batch[i + 1:], i + 1):
+            for j, (id2, text2) in enumerate(batch[i + 1 :], i + 1):
                 # Quick length check to avoid expensive comparison
                 len_ratio = len(text1) / max(1, len(text2))
                 if len_ratio < 0.5 or len_ratio > 2.0:
@@ -281,7 +290,9 @@ def find_near_duplicates(
                     duplicates.append((id1, id2, score))
 
         if batch_start > 0 and batch_start % 500 == 0:
-            logger.info(f"Duplicate search: {batch_start}/{len(samples)}, found {len(duplicates)}")
+            logger.info(
+                f"Duplicate search: {batch_start}/{len(samples)}, found {len(duplicates)}"
+            )
 
     logger.info(f"Found {len(duplicates)} potential near-duplicates")
     return duplicates
@@ -302,7 +313,9 @@ def generate_report(
 
     # Find near-duplicates (optional, expensive)
     if run_dedup and HAS_RAPIDFUZZ:
-        duplicates = find_near_duplicates(conn, sample_size=min(1000, report.total_checked))
+        duplicates = find_near_duplicates(
+            conn, sample_size=min(1000, report.total_checked)
+        )
         report.near_duplicates_found = len(duplicates)
 
         # Save duplicates to separate file
@@ -326,7 +339,9 @@ def generate_report(
     logger.info("Quality Pipeline Complete")
     logger.info("=" * 60)
     logger.info(f"Total checked:    {report.total_checked}")
-    logger.info(f"Valid:            {report.valid} ({report.valid / max(1, report.total_checked) * 100:.1f}%)")
+    logger.info(
+        f"Valid:            {report.valid} ({report.valid / max(1, report.total_checked) * 100:.1f}%)"
+    )
     logger.info(f"Invalid:          {report.invalid}")
     logger.info(f"Near-duplicates:  {report.near_duplicates_found}")
     logger.info("-" * 40)
@@ -335,11 +350,15 @@ def generate_report(
         logger.info(f"  {issue}: {count}")
     logger.info("-" * 40)
     logger.info("Charset distribution:")
-    for charset, count in sorted(report.charset_distribution.items(), key=lambda x: -x[1]):
+    for charset, count in sorted(
+        report.charset_distribution.items(), key=lambda x: -x[1]
+    ):
         logger.info(f"  {charset}: {count}")
     logger.info("-" * 40)
     logger.info("Source distribution:")
-    for source, count in sorted(report.source_distribution.items(), key=lambda x: -x[1])[:10]:
+    for source, count in sorted(
+        report.source_distribution.items(), key=lambda x: -x[1]
+    )[:10]:
         logger.info(f"  {source}: {count}")
 
     return report
@@ -377,7 +396,8 @@ def main() -> int:
         help="Limit number of records to check (for testing)",
     )
     parser.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="store_true",
         help="Enable verbose logging",
     )

@@ -164,7 +164,7 @@ def test_validate_export_enforces_tensor_shapes_and_layer_count(tmp_path: Path) 
 
 
 # Additional tests for config inference and export_from_checkpoint
-from train.export import (
+from train.export import (  # noqa: E402
     _infer_config_from_state_dict,
     _extract_config_from_dict,
     _extract_config_from_object,
@@ -214,9 +214,7 @@ class TestInferConfigFromStateDict:
         state_dict = {
             "token_embedding.weight": torch.randn(107, 64),
         }
-        config = _infer_config_from_state_dict(
-            state_dict, fallback_n_layer=4
-        )
+        config = _infer_config_from_state_dict(state_dict, fallback_n_layer=4)
         assert config.n_layer == 4
 
     def test_uses_fallback_block_size_when_no_mask(self) -> None:
@@ -224,9 +222,7 @@ class TestInferConfigFromStateDict:
         state_dict = {
             "token_embedding.weight": torch.randn(107, 64),
         }
-        config = _infer_config_from_state_dict(
-            state_dict, fallback_block_size=1024
-        )
+        config = _infer_config_from_state_dict(state_dict, fallback_block_size=1024)
         assert config.block_size == 1024
 
     def test_raises_on_missing_token_embedding(self) -> None:
@@ -385,9 +381,7 @@ class TestExportFromCheckpoint:
         torch.save(checkpoint, checkpoint_path)
 
         output_dir = tmp_path / "export"
-        export_from_checkpoint(
-            checkpoint_path, output_dir, quantize="both"
-        )
+        export_from_checkpoint(checkpoint_path, output_dir, quantize="both")
 
         assert (output_dir / "model_int8.safetensors").exists()
         assert (output_dir / "model_int4.safetensors").exists()

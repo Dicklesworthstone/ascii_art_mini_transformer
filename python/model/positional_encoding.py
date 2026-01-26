@@ -113,8 +113,8 @@ class SinusoidalPositionalEncoding2D(nn.Module):
         col_pe = self._compute_sinusoidal(max_cols, d_model - d_model // 2)
 
         # Register as buffers (not parameters)
-        self.register_buffer('row_pe', row_pe)
-        self.register_buffer('col_pe', col_pe)
+        self.register_buffer("row_pe", row_pe)
+        self.register_buffer("col_pe", col_pe)
 
     def _compute_sinusoidal(self, max_len: int, d: int) -> torch.Tensor:
         """Compute sinusoidal positional encoding."""
@@ -126,7 +126,7 @@ class SinusoidalPositionalEncoding2D(nn.Module):
 
         pe[:, 0::2] = torch.sin(position * div_term)
         if d > 1:
-            pe[:, 1::2] = torch.cos(position * div_term[:d // 2])
+            pe[:, 1::2] = torch.cos(position * div_term[: d // 2])
 
         return pe
 
@@ -188,16 +188,21 @@ def compute_2d_positions_vectorized(
     # Row index = cumulative sum of newlines seen so far
     # We shift by 1 because first token is row 0, row increments AFTER newline
     rows_unshifted = torch.cumsum(is_newline, dim=1)
-    rows = torch.cat([
-        torch.zeros(batch_size, 1, dtype=torch.long, device=device),
-        rows_unshifted[:, :-1]
-    ], dim=1)
+    rows = torch.cat(
+        [
+            torch.zeros(batch_size, 1, dtype=torch.long, device=device),
+            rows_unshifted[:, :-1],
+        ],
+        dim=1,
+    )
 
     # For columns: need to reset to 0 after each newline
     # Strategy: compute position within current line using cummax trick
 
     # Create position indices
-    position_in_seq = torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
+    position_in_seq = (
+        torch.arange(seq_len, device=device).unsqueeze(0).expand(batch_size, -1)
+    )
 
     # Find the most recent newline position BEFORE this token
     # We need to look at the previous position's newline, not the current
@@ -205,15 +210,18 @@ def compute_2d_positions_vectorized(
     newline_positions = torch.where(
         is_newline.bool(),
         position_in_seq,
-        torch.tensor(-1, dtype=torch.long, device=device)
+        torch.tensor(-1, dtype=torch.long, device=device),
     )
 
     # Shift right: for each position, we want the most recent newline BEFORE it
     # Create shifted version: prepend -1, drop last element
-    shifted_newline_positions = torch.cat([
-        torch.full((batch_size, 1), -1, dtype=torch.long, device=device),
-        newline_positions[:, :-1]
-    ], dim=1)
+    shifted_newline_positions = torch.cat(
+        [
+            torch.full((batch_size, 1), -1, dtype=torch.long, device=device),
+            newline_positions[:, :-1],
+        ],
+        dim=1,
+    )
 
     # Propagate the last newline index forward using cummax
     last_newline_before, _ = torch.cummax(shifted_newline_positions, dim=1)
@@ -227,7 +235,7 @@ def compute_2d_positions_vectorized(
 
 def compute_2d_positions_simple(
     text: str,
-    newline_char: str = '\n',
+    newline_char: str = "\n",
 ) -> Tuple[list[int], list[int]]:
     """
     Simple (non-vectorized) computation of 2D positions.
@@ -288,7 +296,9 @@ class PositionalEncoding2DModule(nn.Module):
         if learned:
             self.pos_encoding = LearnedPositionalEncoding2D(d_model, max_rows, max_cols)
         else:
-            self.pos_encoding = SinusoidalPositionalEncoding2D(d_model, max_rows, max_cols)
+            self.pos_encoding = SinusoidalPositionalEncoding2D(
+                d_model, max_rows, max_cols
+            )
 
     def forward(self, token_ids: torch.Tensor) -> torch.Tensor:
         """
@@ -334,17 +344,19 @@ def create_positional_encoding(
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Quick test
     print("Testing 2D Positional Encoding")
     print("=" * 50)
 
     # Test vectorized position computation
     print("\n1. Testing position computation...")
-    token_ids = torch.tensor([
-        [1, 2, 3, 7, 4, 5, 7, 6],  # 7 is newline
-        [1, 7, 2, 3, 4, 7, 5, 6],
-    ])
+    token_ids = torch.tensor(
+        [
+            [1, 2, 3, 7, 4, 5, 7, 6],  # 7 is newline
+            [1, 7, 2, 3, 4, 7, 5, 6],
+        ]
+    )
     rows, cols = compute_2d_positions_vectorized(token_ids, newline_token_id=7)
     print(f"Token IDs:\n{token_ids}")
     print(f"Rows:\n{rows}")
@@ -353,8 +365,12 @@ if __name__ == '__main__':
     # Verify first sequence: 1,2,3,NL,4,5,NL,6
     # Expected rows: 0,0,0,0,1,1,1,2
     # Expected cols: 0,1,2,3,0,1,2,0
-    assert rows[0].tolist() == [0, 0, 0, 0, 1, 1, 1, 2], f"Row mismatch: {rows[0].tolist()}"
-    assert cols[0].tolist() == [0, 1, 2, 3, 0, 1, 2, 0], f"Col mismatch: {cols[0].tolist()}"
+    assert rows[0].tolist() == [0, 0, 0, 0, 1, 1, 1, 2], (
+        f"Row mismatch: {rows[0].tolist()}"
+    )
+    assert cols[0].tolist() == [0, 1, 2, 3, 0, 1, 2, 0], (
+        f"Col mismatch: {cols[0].tolist()}"
+    )
     print("Position computation test passed!")
 
     # Test learned encoding

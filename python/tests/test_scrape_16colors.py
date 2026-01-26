@@ -35,7 +35,9 @@ def _make_sauce_record(
 
 def test_strip_sauce_removes_record_and_extracts_metadata() -> None:
     body = b"hello\r\nworld\r\n"
-    sauce = _make_sauce_record(title="ABYSS", author="ansiwave", group="art", date="19901231")
+    sauce = _make_sauce_record(
+        title="ABYSS", author="ansiwave", group="art", date="19901231"
+    )
     payload = body + b"\x1a" + sauce
 
     stripped, meta = strip_sauce(payload)

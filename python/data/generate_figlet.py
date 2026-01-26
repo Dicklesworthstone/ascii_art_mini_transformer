@@ -50,8 +50,10 @@ def retry_on_lock(
             return func()
         except sqlite3.OperationalError as e:
             if "locked" in str(e).lower() and attempt < max_retries - 1:
-                delay = min(base_delay * (2 ** attempt), max_delay)
-                logger.debug(f"Database locked, retrying in {delay:.1f}s (attempt {attempt + 1})")
+                delay = min(base_delay * (2**attempt), max_delay)
+                logger.debug(
+                    f"Database locked, retrying in {delay:.1f}s (attempt {attempt + 1})"
+                )
                 time.sleep(delay)
             else:
                 raise
@@ -66,70 +68,336 @@ DIGITS = list("0123456789")
 
 COMMON_WORDS = [
     # Greetings and basic
-    "HELLO", "WORLD", "WELCOME", "GOODBYE", "THANKS",
+    "HELLO",
+    "WORLD",
+    "WELCOME",
+    "GOODBYE",
+    "THANKS",
     # Tech/Programming
-    "ERROR", "DEBUG", "TEST", "TODO", "FIXME", "README",
-    "CODE", "DATA", "FILE", "MAIN", "INIT", "EXIT",
-    "START", "STOP", "RUN", "BUILD", "DONE", "PASS", "FAIL",
+    "ERROR",
+    "DEBUG",
+    "TEST",
+    "TODO",
+    "FIXME",
+    "README",
+    "CODE",
+    "DATA",
+    "FILE",
+    "MAIN",
+    "INIT",
+    "EXIT",
+    "START",
+    "STOP",
+    "RUN",
+    "BUILD",
+    "DONE",
+    "PASS",
+    "FAIL",
     # Actions
-    "HELP", "INFO", "WARN", "ALERT", "STATUS", "LOADING",
+    "HELP",
+    "INFO",
+    "WARN",
+    "ALERT",
+    "STATUS",
+    "LOADING",
     # Common nouns
-    "SYSTEM", "USER", "ADMIN", "SERVER", "CLIENT", "GAME",
-    "MUSIC", "VIDEO", "IMAGE", "AUDIO", "DEMO", "BETA",
+    "SYSTEM",
+    "USER",
+    "ADMIN",
+    "SERVER",
+    "CLIENT",
+    "GAME",
+    "MUSIC",
+    "VIDEO",
+    "IMAGE",
+    "AUDIO",
+    "DEMO",
+    "BETA",
     # Short combinations
-    "OK", "YES", "NO", "GO", "END", "NEW", "OLD", "TOP",
+    "OK",
+    "YES",
+    "NO",
+    "GO",
+    "END",
+    "NEW",
+    "OLD",
+    "TOP",
     # Numbers as words
-    "ONE", "TWO", "TEN", "ZERO", "NULL",
+    "ONE",
+    "TWO",
+    "TEN",
+    "ZERO",
+    "NULL",
     # ASCII art related
-    "ASCII", "ART", "TEXT", "BANNER", "LOGO", "TITLE",
+    "ASCII",
+    "ART",
+    "TEXT",
+    "BANNER",
+    "LOGO",
+    "TITLE",
     # Fun words
-    "COOL", "EPIC", "MEGA", "ULTRA", "SUPER", "HYPER",
+    "COOL",
+    "EPIC",
+    "MEGA",
+    "ULTRA",
+    "SUPER",
+    "HYPER",
     # Time
-    "NOW", "TODAY", "YEAR", "TIME", "DATE",
+    "NOW",
+    "TODAY",
+    "YEAR",
+    "TIME",
+    "DATE",
     # Misc
-    "NAME", "LOVE", "PEACE", "POWER", "MAGIC", "DREAM",
+    "NAME",
+    "LOVE",
+    "PEACE",
+    "POWER",
+    "MAGIC",
+    "DREAM",
 ]
 
 EXTRA_WORDS = [
     # Short + common
-    "CAT", "DOG", "BIRD", "FISH", "MOUSE", "HORSE", "SHEEP", "GOAT", "COW", "PIG",
-    "LION", "TIGER", "BEAR", "WOLF", "FOX", "DRAGON", "UNICORN",
-    "SUN", "MOON", "STAR", "CLOUD", "RAIN", "SNOW", "WIND", "FIRE", "WATER", "EARTH",
-    "TREE", "FLOWER", "ROSE", "LEAF", "STONE", "ROCK", "MOUNTAIN", "OCEAN", "RIVER", "LAKE",
-    "HOUSE", "HOME", "CITY", "TOWN", "ROAD", "BRIDGE", "TOWER", "CASTLE",
-    "CAR", "TRUCK", "TRAIN", "PLANE", "SHIP", "BOAT", "ROCKET",
+    "CAT",
+    "DOG",
+    "BIRD",
+    "FISH",
+    "MOUSE",
+    "HORSE",
+    "SHEEP",
+    "GOAT",
+    "COW",
+    "PIG",
+    "LION",
+    "TIGER",
+    "BEAR",
+    "WOLF",
+    "FOX",
+    "DRAGON",
+    "UNICORN",
+    "SUN",
+    "MOON",
+    "STAR",
+    "CLOUD",
+    "RAIN",
+    "SNOW",
+    "WIND",
+    "FIRE",
+    "WATER",
+    "EARTH",
+    "TREE",
+    "FLOWER",
+    "ROSE",
+    "LEAF",
+    "STONE",
+    "ROCK",
+    "MOUNTAIN",
+    "OCEAN",
+    "RIVER",
+    "LAKE",
+    "HOUSE",
+    "HOME",
+    "CITY",
+    "TOWN",
+    "ROAD",
+    "BRIDGE",
+    "TOWER",
+    "CASTLE",
+    "CAR",
+    "TRUCK",
+    "TRAIN",
+    "PLANE",
+    "SHIP",
+    "BOAT",
+    "ROCKET",
     # Colors
-    "RED", "GREEN", "BLUE", "CYAN", "MAGENTA", "YELLOW", "BLACK", "WHITE", "GRAY",
+    "RED",
+    "GREEN",
+    "BLUE",
+    "CYAN",
+    "MAGENTA",
+    "YELLOW",
+    "BLACK",
+    "WHITE",
+    "GRAY",
     # Tech / CLI
-    "API", "CLI", "JSON", "YAML", "TOML", "SQL", "HTTP", "HTTPS", "TCP", "UDP", "SSH", "TLS",
-    "GIT", "COMMIT", "PUSH", "PULL", "MERGE", "REBASE", "BRANCH", "TAG", "DIFF", "PATCH",
-    "TOKEN", "MODEL", "TRAIN", "EXPORT", "WEIGHTS", "QUANT", "INT8", "INT4",
-    "LINUX", "RUST", "PYTHON", "CUDA", "CPU", "GPU",
+    "API",
+    "CLI",
+    "JSON",
+    "YAML",
+    "TOML",
+    "SQL",
+    "HTTP",
+    "HTTPS",
+    "TCP",
+    "UDP",
+    "SSH",
+    "TLS",
+    "GIT",
+    "COMMIT",
+    "PUSH",
+    "PULL",
+    "MERGE",
+    "REBASE",
+    "BRANCH",
+    "TAG",
+    "DIFF",
+    "PATCH",
+    "TOKEN",
+    "MODEL",
+    "TRAIN",
+    "EXPORT",
+    "WEIGHTS",
+    "QUANT",
+    "INT8",
+    "INT4",
+    "LINUX",
+    "RUST",
+    "PYTHON",
+    "CUDA",
+    "CPU",
+    "GPU",
     # Status-ish
-    "READY", "BUSY", "WAIT", "SLEEP", "WAKE", "RETRY", "SUCCESS", "FAILURE",
-    "ONLINE", "OFFLINE", "CONNECTED", "DISCONNECTED",
+    "READY",
+    "BUSY",
+    "WAIT",
+    "SLEEP",
+    "WAKE",
+    "RETRY",
+    "SUCCESS",
+    "FAILURE",
+    "ONLINE",
+    "OFFLINE",
+    "CONNECTED",
+    "DISCONNECTED",
     # Time
-    "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY", "SUNDAY",
-    "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+    "MONDAY",
+    "TUESDAY",
+    "WEDNESDAY",
+    "THURSDAY",
+    "FRIDAY",
+    "SATURDAY",
+    "SUNDAY",
+    "JAN",
+    "FEB",
+    "MAR",
+    "APR",
+    "MAY",
+    "JUN",
+    "JUL",
+    "AUG",
+    "SEP",
+    "OCT",
+    "NOV",
+    "DEC",
     # Fun
-    "WOW", "NICE", "BRAVO", "CHEERS", "PARTY", "HYPE", "VIBES", "RAD", "NEAT", "GREAT",
+    "WOW",
+    "NICE",
+    "BRAVO",
+    "CHEERS",
+    "PARTY",
+    "HYPE",
+    "VIBES",
+    "RAD",
+    "NEAT",
+    "GREAT",
     # More short words for incremental runs (kept relatively short to avoid width limits).
-    "ROBOT", "ALIEN", "SPACE", "LASER", "PIXEL", "RETRO", "ANSI", "SCENE", "PACK", "GROUP",
-    "BBS", "NET", "NODE", "PIPE", "PORT", "SOCK", "QUEUE", "STACK", "HEAP", "CACHE",
-    "TRACE", "PANIC", "CRASH", "RECOVER", "ROLLBACK", "RELEASE", "DEPLOY",
-    "SHELL", "BASH", "ZSH", "FISH", "CARGO", "MAKE", "TESTS", "UNIT", "E2E",
-    "LINT", "FORMAT", "CHECK", "BUILD", "CLEAN",
-    "ALPHA", "BETA2", "GAMMA", "DELTA", "OMEGA",
-    "NORTH", "SOUTH", "EAST", "WEST",
-    "HAPPY", "SMILE", "LAUGH", "CRY", "ANGRY",
-    "COFFEE", "TEA", "PIZZA", "TACO", "SUSHI",
-    "MUSIC2", "VIDEO2", "PHOTO", "CAMERA", "RADIO",
-    "BOOK", "PAPER", "PENCIL", "BRUSH", "CANVAS",
-    "BUNNY", "PANDA", "KOALA", "EAGLE", "SHARK",
-    "SNAIL", "FROG", "WHALE", "ZEBRA", "OTTER",
-    "SWORD", "SHIELD", "QUEST", "BATTLE", "LEVEL",
-    "AURORA", "COMET", "GALAXY", "ORBIT", "METEOR",
-    "SIGNAL", "NOISE", "ECHO", "VOICE", "SILENCE",
+    "ROBOT",
+    "ALIEN",
+    "SPACE",
+    "LASER",
+    "PIXEL",
+    "RETRO",
+    "ANSI",
+    "SCENE",
+    "PACK",
+    "GROUP",
+    "BBS",
+    "NET",
+    "NODE",
+    "PIPE",
+    "PORT",
+    "SOCK",
+    "QUEUE",
+    "STACK",
+    "HEAP",
+    "CACHE",
+    "TRACE",
+    "PANIC",
+    "CRASH",
+    "RECOVER",
+    "ROLLBACK",
+    "RELEASE",
+    "DEPLOY",
+    "SHELL",
+    "BASH",
+    "ZSH",
+    "FISH",
+    "CARGO",
+    "MAKE",
+    "TESTS",
+    "UNIT",
+    "E2E",
+    "LINT",
+    "FORMAT",
+    "CHECK",
+    "BUILD",
+    "CLEAN",
+    "ALPHA",
+    "BETA2",
+    "GAMMA",
+    "DELTA",
+    "OMEGA",
+    "NORTH",
+    "SOUTH",
+    "EAST",
+    "WEST",
+    "HAPPY",
+    "SMILE",
+    "LAUGH",
+    "CRY",
+    "ANGRY",
+    "COFFEE",
+    "TEA",
+    "PIZZA",
+    "TACO",
+    "SUSHI",
+    "MUSIC2",
+    "VIDEO2",
+    "PHOTO",
+    "CAMERA",
+    "RADIO",
+    "BOOK",
+    "PAPER",
+    "PENCIL",
+    "BRUSH",
+    "CANVAS",
+    "BUNNY",
+    "PANDA",
+    "KOALA",
+    "EAGLE",
+    "SHARK",
+    "SNAIL",
+    "FROG",
+    "WHALE",
+    "ZEBRA",
+    "OTTER",
+    "SWORD",
+    "SHIELD",
+    "QUEST",
+    "BATTLE",
+    "LEVEL",
+    "AURORA",
+    "COMET",
+    "GALAXY",
+    "ORBIT",
+    "METEOR",
+    "SIGNAL",
+    "NOISE",
+    "ECHO",
+    "VOICE",
+    "SILENCE",
 ]
 
 
@@ -146,6 +414,7 @@ def _word_list(kind: str) -> list[str]:
 @dataclass
 class FontTestResult:
     """Result of testing a font."""
+
     font_path: Path
     font_name: str
     works: bool
@@ -155,6 +424,7 @@ class FontTestResult:
 @dataclass
 class GenerationStats:
     """Statistics for generation run."""
+
     fonts_tested: int = 0
     fonts_working: int = 0
     fonts_broken: int = 0
@@ -436,7 +706,9 @@ def generate_dataset(
                     pending = 0
                     if stop_at_total_rows is not None:
                         total = retry_on_lock(
-                            lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+                            lambda: conn.execute(
+                                "SELECT COUNT(*) FROM ascii_art"
+                            ).fetchone()[0]
                         )
                         if int(total) >= stop_at_total_rows:
                             hit_stop = True
@@ -444,7 +716,9 @@ def generate_dataset(
 
             except Exception as e:
                 stats.errors += 1
-                logger.warning(f"Error inserting {font_name}/{extra_meta['input_text']}: {e}")
+                logger.warning(
+                    f"Error inserting {font_name}/{extra_meta['input_text']}: {e}"
+                )
 
         if hit_stop:
             break
@@ -457,7 +731,9 @@ def generate_dataset(
                 f"{stats.total_generated} generated, {stats.inserted} inserted"
             )
             if stop_at_total_rows is not None:
-                total = retry_on_lock(lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0])
+                total = retry_on_lock(
+                    lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+                )
                 if int(total) >= stop_at_total_rows:
                     hit_stop = True
                     break
@@ -473,7 +749,9 @@ def main():
     """Main entry point."""
     if which("figlet") is None:
         logger.error("Missing dependency: `figlet` binary not found in PATH.")
-        logger.error("Install it (or run inside an env that has it) before running generation.")
+        logger.error(
+            "Install it (or run inside an env that has it) before running generation."
+        )
         return 1
 
     parser = argparse.ArgumentParser(

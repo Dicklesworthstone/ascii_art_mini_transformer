@@ -23,18 +23,18 @@ from typing import Optional, Sequence
 
 # Special token definitions with fixed IDs
 SPECIAL_TOKENS = {
-    '<PAD>': 0,           # Padding token
-    '<BOS>': 1,           # Begin of sequence
-    '<EOS>': 2,           # End of sequence
-    '<UNK>': 3,           # Unknown character fallback
-    '<SEP>': 4,           # Separator (description | art)
-    '<WIDTH>': 5,         # Width constraint marker
-    '<HEIGHT>': 6,        # Height constraint marker
-    '<NEWLINE>': 7,       # Explicit newline for 2D tracking
-    '<STYLE_ART>': 8,     # Realistic ASCII art style
-    '<STYLE_BANNER>': 9,  # FIGlet-style text banner
-    '<STYLE_SIMPLE>': 10, # Simple line drawing
-    '<STYLE_DETAILED>': 11,  # Detailed with shading
+    "<PAD>": 0,  # Padding token
+    "<BOS>": 1,  # Begin of sequence
+    "<EOS>": 2,  # End of sequence
+    "<UNK>": 3,  # Unknown character fallback
+    "<SEP>": 4,  # Separator (description | art)
+    "<WIDTH>": 5,  # Width constraint marker
+    "<HEIGHT>": 6,  # Height constraint marker
+    "<NEWLINE>": 7,  # Explicit newline for 2D tracking
+    "<STYLE_ART>": 8,  # Realistic ASCII art style
+    "<STYLE_BANNER>": 9,  # FIGlet-style text banner
+    "<STYLE_SIMPLE>": 10,  # Simple line drawing
+    "<STYLE_DETAILED>": 11,  # Detailed with shading
 }
 
 # Reverse mapping for decoding
@@ -42,10 +42,10 @@ SPECIAL_TOKEN_IDS = {v: k for k, v in SPECIAL_TOKENS.items()}
 
 # Style token name to ID mapping
 STYLE_TOKENS = {
-    'art': '<STYLE_ART>',
-    'banner': '<STYLE_BANNER>',
-    'simple': '<STYLE_SIMPLE>',
-    'detailed': '<STYLE_DETAILED>',
+    "art": "<STYLE_ART>",
+    "banner": "<STYLE_BANNER>",
+    "simple": "<STYLE_SIMPLE>",
+    "detailed": "<STYLE_DETAILED>",
 }
 
 # Number of special tokens (used as offset for printable chars)
@@ -58,6 +58,7 @@ PRINTABLE_ASCII = [chr(i) for i in range(32, 127)]  # 95 characters
 @dataclass
 class TokenizerConfig:
     """Configuration for the ASCII art tokenizer."""
+
     vocab_size: int
     num_special_tokens: int
     printable_offset: int
@@ -111,32 +112,32 @@ class AsciiTokenizer:
     @property
     def pad_token_id(self) -> int:
         """Padding token ID."""
-        return SPECIAL_TOKENS['<PAD>']
+        return SPECIAL_TOKENS["<PAD>"]
 
     @property
     def bos_token_id(self) -> int:
         """Beginning of sequence token ID."""
-        return SPECIAL_TOKENS['<BOS>']
+        return SPECIAL_TOKENS["<BOS>"]
 
     @property
     def eos_token_id(self) -> int:
         """End of sequence token ID."""
-        return SPECIAL_TOKENS['<EOS>']
+        return SPECIAL_TOKENS["<EOS>"]
 
     @property
     def unk_token_id(self) -> int:
         """Unknown token ID."""
-        return SPECIAL_TOKENS['<UNK>']
+        return SPECIAL_TOKENS["<UNK>"]
 
     @property
     def sep_token_id(self) -> int:
         """Separator token ID."""
-        return SPECIAL_TOKENS['<SEP>']
+        return SPECIAL_TOKENS["<SEP>"]
 
     @property
     def newline_token_id(self) -> int:
         """Newline token ID."""
-        return SPECIAL_TOKENS['<NEWLINE>']
+        return SPECIAL_TOKENS["<NEWLINE>"]
 
     def get_config(self) -> TokenizerConfig:
         """Get tokenizer configuration for model initialization."""
@@ -170,7 +171,7 @@ class AsciiTokenizer:
         """Encode ASCII art, converting newlines to <NEWLINE> token."""
         tokens = []
         for char in art:
-            if char == '\n':
+            if char == "\n":
                 tokens.append(self.newline_token_id)
             elif char in self._char_to_id:
                 tokens.append(self._char_to_id[char])
@@ -200,7 +201,7 @@ class AsciiTokenizer:
         art: str,
         width: Optional[int] = None,
         height: Optional[int] = None,
-        style: str = 'art',
+        style: str = "art",
     ) -> list[int]:
         """
         Encode a complete training example with constraints.
@@ -221,16 +222,16 @@ class AsciiTokenizer:
 
         # Add width constraint if provided
         if width is not None:
-            tokens.append(self._char_to_id['<WIDTH>'])
+            tokens.append(self._char_to_id["<WIDTH>"])
             tokens.extend(self._encode_number(width))
 
         # Add height constraint if provided
         if height is not None:
-            tokens.append(self._char_to_id['<HEIGHT>'])
+            tokens.append(self._char_to_id["<HEIGHT>"])
             tokens.extend(self._encode_number(height))
 
         # Add style token (single token, not encoded string)
-        style_token = STYLE_TOKENS.get(style, '<STYLE_ART>')
+        style_token = STYLE_TOKENS.get(style, "<STYLE_ART>")
         tokens.append(self._char_to_id[style_token])
 
         # Add description
@@ -252,7 +253,7 @@ class AsciiTokenizer:
         description: str,
         width: Optional[int] = None,
         height: Optional[int] = None,
-        style: str = 'art',
+        style: str = "art",
     ) -> list[int]:
         """
         Encode a prompt for inference (everything before the art).
@@ -272,14 +273,14 @@ class AsciiTokenizer:
 
         # Add constraints if provided
         if width is not None:
-            tokens.append(self._char_to_id['<WIDTH>'])
+            tokens.append(self._char_to_id["<WIDTH>"])
             tokens.extend(self._encode_number(width))
         if height is not None:
-            tokens.append(self._char_to_id['<HEIGHT>'])
+            tokens.append(self._char_to_id["<HEIGHT>"])
             tokens.extend(self._encode_number(height))
 
         # Add style token
-        style_token = STYLE_TOKENS.get(style, '<STYLE_ART>')
+        style_token = STYLE_TOKENS.get(style, "<STYLE_ART>")
         tokens.append(self._char_to_id[style_token])
 
         # Add description
@@ -309,21 +310,21 @@ class AsciiTokenizer:
         for token_id in token_ids:
             if token_id not in self._id_to_char:
                 if not skip_special_tokens:
-                    chars.append(f'<UNK:{token_id}>')
+                    chars.append(f"<UNK:{token_id}>")
                 continue
 
             char = self._id_to_char[token_id]
 
             # Handle special tokens
-            if char.startswith('<') and char.endswith('>'):
-                if char == '<NEWLINE>':
-                    chars.append('\n')
+            if char.startswith("<") and char.endswith(">"):
+                if char == "<NEWLINE>":
+                    chars.append("\n")
                 elif not skip_special_tokens:
                     chars.append(char)
             else:
                 chars.append(char)
 
-        return ''.join(chars)
+        return "".join(chars)
 
     def decode_art(self, token_ids: Sequence[int]) -> str:
         """
@@ -343,7 +344,7 @@ class AsciiTokenizer:
 
         # Find end token after separator
         art_tokens = []
-        for token_id in token_ids[sep_idx + 1:]:
+        for token_id in token_ids[sep_idx + 1 :]:
             if token_id == eos_id:
                 break
             art_tokens.append(token_id)
@@ -368,21 +369,22 @@ class AsciiTokenizer:
             path: Path to save JSON file
         """
         config = {
-            'vocab_size': self.vocab_size,
-            'num_special_tokens': NUM_SPECIAL_TOKENS,
-            'printable_offset': NUM_SPECIAL_TOKENS,
-            'special_tokens': SPECIAL_TOKENS,
-            'style_tokens': STYLE_TOKENS,
-            'char_to_id': {
-                k: v for k, v in self._char_to_id.items()
+            "vocab_size": self.vocab_size,
+            "num_special_tokens": NUM_SPECIAL_TOKENS,
+            "printable_offset": NUM_SPECIAL_TOKENS,
+            "special_tokens": SPECIAL_TOKENS,
+            "style_tokens": STYLE_TOKENS,
+            "char_to_id": {
+                k: v
+                for k, v in self._char_to_id.items()
                 if k not in SPECIAL_TOKENS  # Only exclude special tokens, keep '<' char
             },
         }
-        with open(path, 'w', encoding='utf-8') as f:
+        with open(path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2, ensure_ascii=False)
 
     @classmethod
-    def load(cls, path: str | Path) -> 'AsciiTokenizer':
+    def load(cls, path: str | Path) -> "AsciiTokenizer":
         """
         Load tokenizer from JSON config.
 
@@ -403,7 +405,7 @@ def get_tokenizer() -> AsciiTokenizer:
     return AsciiTokenizer()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Quick test
     tokenizer = AsciiTokenizer()
     print(f"Vocabulary size: {tokenizer.vocab_size}")
@@ -425,7 +427,7 @@ if __name__ == '__main__':
         art=art,
         width=10,
         height=3,
-        style='art',
+        style="art",
     )
     print(f"\nTraining example tokens: {tokens[:20]}... ({len(tokens)} total)")
 
@@ -437,7 +439,7 @@ if __name__ == '__main__':
     prompt_tokens = tokenizer.encode_inference_prompt(
         description="a snake",
         width=40,
-        style='simple',
+        style="simple",
     )
     print(f"\nInference prompt tokens: {prompt_tokens}")
     print(f"Prompt: {tokenizer.decode(prompt_tokens, skip_special_tokens=False)}")

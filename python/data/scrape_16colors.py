@@ -91,7 +91,9 @@ def _parse_sauce_record(record: bytes) -> SauceMetadata:
     if comment_count:
         comments = [""] * int(comment_count)
 
-    return SauceMetadata(title=title, author=author, group=group, date=date, comments=comments)
+    return SauceMetadata(
+        title=title, author=author, group=group, date=date, comments=comments
+    )
 
 
 def strip_sauce(data: bytes) -> tuple[bytes, Optional[SauceMetadata]]:
@@ -117,13 +119,18 @@ def strip_sauce(data: bytes) -> tuple[bytes, Optional[SauceMetadata]]:
     comment_count = sauce[104]
     if comment_count:
         comnt_size = 5 + (int(comment_count) * 64)
-        if len(content) >= comnt_size and content[-comnt_size : -comnt_size + 5] == b"COMNT":
+        if (
+            len(content) >= comnt_size
+            and content[-comnt_size : -comnt_size + 5] == b"COMNT"
+        ):
             comnt_block = content[-comnt_size:]
             comment_payload = comnt_block[5:]
             comments: list[str] = []
             for i in range(int(comment_count)):
                 line = comment_payload[i * 64 : (i + 1) * 64]
-                decoded = line.rstrip(b"\x00 ").decode("cp437", errors="replace").strip()
+                decoded = (
+                    line.rstrip(b"\x00 ").decode("cp437", errors="replace").strip()
+                )
                 if decoded:
                     comments.append(decoded)
             meta = SauceMetadata(
@@ -157,7 +164,9 @@ def decode_cp437(data: bytes) -> str:
 def _rate_limit(delay_seconds: float, jitter_seconds: float) -> None:
     if delay_seconds <= 0:
         return
-    sleep_for = delay_seconds + (random.random() * jitter_seconds if jitter_seconds > 0 else 0.0)
+    sleep_for = delay_seconds + (
+        random.random() * jitter_seconds if jitter_seconds > 0 else 0.0
+    )
     time.sleep(sleep_for)
 
 
@@ -205,7 +214,9 @@ def _extract_pack_links(year_html: str, base_url: str) -> list[str]:
     return out
 
 
-def _extract_file_page_links(pack_html: str, base_url: str, pack_name: str) -> list[str]:
+def _extract_file_page_links(
+    pack_html: str, base_url: str, pack_name: str
+) -> list[str]:
     soup = _soup(pack_html)
     links: list[str] = []
     prefix = f"/pack/{pack_name}/"
@@ -214,7 +225,13 @@ def _extract_file_page_links(pack_html: str, base_url: str, pack_name: str) -> l
         if not href or not href.startswith(prefix):
             continue
         # Skip known non-file routes.
-        if "/raw/" in href or "/data/" in href or "/x1/" in href or "/x2/" in href or "/tn/" in href:
+        if (
+            "/raw/" in href
+            or "/data/" in href
+            or "/x1/" in href
+            or "/x2/" in href
+            or "/tn/" in href
+        ):
             continue
         # File pages are exactly: /pack/<pack>/<filename>
         parts = [p for p in href.split("/") if p]
@@ -224,7 +241,9 @@ def _extract_file_page_links(pack_html: str, base_url: str, pack_name: str) -> l
     return sorted(set(links))
 
 
-def _file_page_to_raw_url(file_page_url: str, pack_name: str, base_url: str) -> Optional[str]:
+def _file_page_to_raw_url(
+    file_page_url: str, pack_name: str, base_url: str
+) -> Optional[str]:
     parsed = urlparse(file_page_url)
     parts = [p for p in parsed.path.split("/") if p]
     if len(parts) != 3 or parts[0] != "pack" or parts[1] != pack_name:
@@ -268,7 +287,9 @@ class ProgressState:
             "duplicates": self.duplicates,
             "errors": self.errors,
         }
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 def scrape_16colo_rs(
@@ -298,7 +319,11 @@ def scrape_16colo_rs(
         }
     )
 
-    progress = ProgressState.load(progress_path) if not dry_run else ProgressState(processed_raw_urls=set())
+    progress = (
+        ProgressState.load(progress_path)
+        if not dry_run
+        else ProgressState(processed_raw_urls=set())
+    )
     logger.info("Loaded progress: %d files processed", len(progress.processed_raw_urls))
 
     conn = None
@@ -325,7 +350,11 @@ def scrape_16colo_rs(
 
             year_html = _http_get_text_latin1(session, year_url)
             pack_links = _extract_pack_links(year_html, base_url)
-            logger.info("Year %s: %d packs", year_url.rstrip("/").split("/")[-1], len(pack_links))
+            logger.info(
+                "Year %s: %d packs",
+                year_url.rstrip("/").split("/")[-1],
+                len(pack_links),
+            )
 
             for pack_url in pack_links:
                 if max_packs is not None and packs_seen >= max_packs:
@@ -449,8 +478,12 @@ def scrape_16colo_rs(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Scrape 16colo.rs ANSI/ASCII archive")
-    parser.add_argument("--base-url", default=DEFAULT_BASE_URL, help="Base URL (default: %(default)s)")
-    parser.add_argument("--db-path", default=str(ROOT / "data" / "ascii_art.db"), help="SQLite DB path")
+    parser.add_argument(
+        "--base-url", default=DEFAULT_BASE_URL, help="Base URL (default: %(default)s)"
+    )
+    parser.add_argument(
+        "--db-path", default=str(ROOT / "data" / "ascii_art.db"), help="SQLite DB path"
+    )
     parser.add_argument(
         "--output-jsonl",
         default=str(ROOT / "data" / "raw" / "16colo_rs.jsonl"),
@@ -461,18 +494,36 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=str(ROOT / "data" / "raw" / "16colo_rs_progress.json"),
         help="Progress JSON path for resumability",
     )
-    parser.add_argument("--delay-seconds", type=float, default=1.5, help="Base delay between requests")
-    parser.add_argument("--jitter-seconds", type=float, default=0.5, help="Random jitter added to delay")
-    parser.add_argument("--max-years", type=int, default=None, help="Stop after N years (debugging)")
-    parser.add_argument("--max-packs", type=int, default=None, help="Stop after N packs (debugging)")
-    parser.add_argument("--max-files", type=int, default=None, help="Stop after N files (debugging)")
-    parser.add_argument("--no-db", action="store_true", help="Do not insert into SQLite (JSONL only)")
-    parser.add_argument("--dry-run", action="store_true", help="Crawl/download but do not write JSONL/DB")
+    parser.add_argument(
+        "--delay-seconds", type=float, default=1.5, help="Base delay between requests"
+    )
+    parser.add_argument(
+        "--jitter-seconds", type=float, default=0.5, help="Random jitter added to delay"
+    )
+    parser.add_argument(
+        "--max-years", type=int, default=None, help="Stop after N years (debugging)"
+    )
+    parser.add_argument(
+        "--max-packs", type=int, default=None, help="Stop after N packs (debugging)"
+    )
+    parser.add_argument(
+        "--max-files", type=int, default=None, help="Stop after N files (debugging)"
+    )
+    parser.add_argument(
+        "--no-db", action="store_true", help="Do not insert into SQLite (JSONL only)"
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Crawl/download but do not write JSONL/DB",
+    )
     return parser
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     args = _build_arg_parser().parse_args()
 
     scrape_16colo_rs(

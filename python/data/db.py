@@ -113,8 +113,12 @@ def compute_metadata(raw_text: str) -> AsciiArtMetadata:
     normalized = normalize_newlines(raw_text)
     content_hash = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
-    has_ansi_codes = _ANSI_ESCAPE_RE.search(normalized) is not None or "\x1b" in normalized
-    text_for_metrics = _ANSI_ESCAPE_RE.sub("", normalized) if has_ansi_codes else normalized
+    has_ansi_codes = (
+        _ANSI_ESCAPE_RE.search(normalized) is not None or "\x1b" in normalized
+    )
+    text_for_metrics = (
+        _ANSI_ESCAPE_RE.sub("", normalized) if has_ansi_codes else normalized
+    )
 
     lines = text_for_metrics.split("\n")
     # Treat a trailing newline as a line terminator, not an extra blank row.
@@ -235,7 +239,9 @@ def upsert_ascii_art(
     meta = compute_metadata(normalized)
 
     tags_json = json.dumps(list(tags), ensure_ascii=False) if tags is not None else None
-    hist_json = json.dumps(dict(meta.char_histogram), ensure_ascii=False, separators=(",", ":"))
+    hist_json = json.dumps(
+        dict(meta.char_histogram), ensure_ascii=False, separators=(",", ":")
+    )
 
     cursor = conn.execute(
         """
@@ -331,7 +337,9 @@ def get_ascii_art_by_id(conn: sqlite3.Connection, art_id: int) -> AsciiArtRow | 
     return _row_to_ascii_art_row(row) if row is not None else None
 
 
-def get_ascii_art_by_hash(conn: sqlite3.Connection, content_hash: str) -> AsciiArtRow | None:
+def get_ascii_art_by_hash(
+    conn: sqlite3.Connection, content_hash: str
+) -> AsciiArtRow | None:
     row = conn.execute(
         "SELECT * FROM ascii_art WHERE content_hash = ?;", (content_hash,)
     ).fetchone()
@@ -352,7 +360,9 @@ _ALLOWED_UPDATE_COLUMNS: set[str] = {
 }
 
 
-def update_ascii_art(conn: sqlite3.Connection, *, art_id: int, fields: Mapping[str, Any]) -> None:
+def update_ascii_art(
+    conn: sqlite3.Connection, *, art_id: int, fields: Mapping[str, Any]
+) -> None:
     if not fields:
         return
 
@@ -431,14 +441,18 @@ def _row_to_ascii_art_row(row: sqlite3.Row) -> AsciiArtRow:
         height=int(row["height"]),
         total_chars=int(row["total_chars"]),
         non_space_chars=int(row["non_space_chars"]),
-        char_density=float(row["char_density"]) if row["char_density"] is not None else 0.0,
+        char_density=float(row["char_density"])
+        if row["char_density"] is not None
+        else 0.0,
         charset=str(row["charset"]),
         char_histogram=hist,
         uses_box_drawing=bool(row["uses_box_drawing"]),
         uses_block_chars=bool(row["uses_block_chars"]),
         has_ansi_codes=bool(row["has_ansi_codes"]),
         is_valid=bool(row["is_valid"]),
-        quality_score=float(row["quality_score"]) if row["quality_score"] is not None else None,
+        quality_score=float(row["quality_score"])
+        if row["quality_score"] is not None
+        else None,
     )
 
 
@@ -447,5 +461,7 @@ def iter_ascii_art_ids(conn: sqlite3.Connection) -> Iterable[int]:
         yield int(row["id"])
 
 
-def execute(conn: sqlite3.Connection, sql: str, params: Mapping[str, Any] | Sequence[Any] = ()) -> None:
+def execute(
+    conn: sqlite3.Connection, sql: str, params: Mapping[str, Any] | Sequence[Any] = ()
+) -> None:
     conn.execute(sql, params)

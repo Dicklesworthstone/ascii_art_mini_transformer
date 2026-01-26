@@ -97,7 +97,9 @@ class ProgressState:
             "errors": self.errors,
             "skipped": self.skipped,
         }
-        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
 
 
 def _normalize_base_url(base_url: str) -> str:
@@ -158,7 +160,9 @@ def _extract_listing_hrefs(html: str) -> list[str]:
     return ordered
 
 
-def _path_category_parts(url: str, base_url: str) -> tuple[Optional[str], Optional[str]]:
+def _path_category_parts(
+    url: str, base_url: str
+) -> tuple[Optional[str], Optional[str]]:
     base = urlparse(base_url)
     parsed = urlparse(url)
     if base.netloc != parsed.netloc or not parsed.path.startswith(base.path):
@@ -187,7 +191,9 @@ def _source_id_from_url(url: str, base_url: str) -> str:
     return rel.lstrip("/")
 
 
-def _tags_for_path(category: Optional[str], subcategory: Optional[str], filename: Optional[str]) -> list[str]:
+def _tags_for_path(
+    category: Optional[str], subcategory: Optional[str], filename: Optional[str]
+) -> list[str]:
     tags: list[str] = ["textfiles"]
     if category:
         tags.append(category)
@@ -283,7 +289,9 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
 
             if dir_url in state.processed_dirs or dir_url in failed_dirs:
                 continue
-            if not _same_site(base_url, dir_url) or not _within_base_path(base_url, dir_url):
+            if not _same_site(base_url, dir_url) or not _within_base_path(
+                base_url, dir_url
+            ):
                 continue
 
             try:
@@ -313,12 +321,18 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
             hrefs = _extract_listing_hrefs(html)
             for href in hrefs:
                 full = urljoin(dir_url, href)
-                if not _same_site(base_url, full) or not _within_base_path(base_url, full):
+                if not _same_site(base_url, full) or not _within_base_path(
+                    base_url, full
+                ):
                     continue
 
                 if full.endswith("/"):
                     subdir = _normalize_base_url(full)
-                    if subdir not in state.processed_dirs and subdir not in queued_dirs and subdir not in failed_dirs:
+                    if (
+                        subdir not in state.processed_dirs
+                        and subdir not in queued_dirs
+                        and subdir not in failed_dirs
+                    ):
                         to_visit.append(subdir)
                         queued_dirs.add(subdir)
                     continue
@@ -327,7 +341,11 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
                     continue
 
                 filename = _filename_from_url(full)
-                ext = filename.rsplit(".", 1)[-1].lower() if filename and "." in filename else ""
+                ext = (
+                    filename.rsplit(".", 1)[-1].lower()
+                    if filename and "." in filename
+                    else ""
+                )
                 if ext in _BINARY_EXTENSIONS:
                     state.skipped += 1
                     state.processed_files.add(full)
@@ -427,15 +445,25 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
 
 
 def _parse_args(argv: Optional[Iterable[str]] = None) -> ScrapeConfig:
-    parser = argparse.ArgumentParser(description="Scrape textfiles.com artscene ANSI/ASCII archive")
+    parser = argparse.ArgumentParser(
+        description="Scrape textfiles.com artscene ANSI/ASCII archive"
+    )
     parser.add_argument("--base-url", default=DEFAULT_BASE_URL)
     parser.add_argument("--db-path", type=Path, default=ROOT / "data" / "ascii_art.db")
     parser.add_argument("--output-jsonl", type=Path, default=None)
-    parser.add_argument("--progress", type=Path, default=ROOT / "data" / "progress_textfiles.json")
+    parser.add_argument(
+        "--progress", type=Path, default=ROOT / "data" / "progress_textfiles.json"
+    )
     parser.add_argument("--delay-seconds", type=float, default=1.0)
     parser.add_argument("--max-files", type=int, default=None)
-    parser.add_argument("--strip-ansi", action="store_true", help="Remove ANSI escape sequences before storing")
-    parser.add_argument("--no-db", action="store_true", help="Do not insert into SQLite")
+    parser.add_argument(
+        "--strip-ansi",
+        action="store_true",
+        help="Remove ANSI escape sequences before storing",
+    )
+    parser.add_argument(
+        "--no-db", action="store_true", help="Do not insert into SQLite"
+    )
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args(list(argv) if argv is not None else None)
 
@@ -453,7 +481,9 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> ScrapeConfig:
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s"
+    )
     config = _parse_args(argv)
     logger.info("Starting textfiles scrape: %s", config.base_url)
     state = scrape_textfiles(config)

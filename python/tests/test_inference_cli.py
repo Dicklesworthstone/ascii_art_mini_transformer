@@ -115,4 +115,3 @@ def test_inference_cli_loads_float_safetensors_export(tmp_path: Path) -> None:
         ]
     )
     assert rc == 0
-
