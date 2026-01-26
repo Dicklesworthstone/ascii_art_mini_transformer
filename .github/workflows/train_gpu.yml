@@ -1,0 +1,351 @@
+name: Train (GPU, self-hosted)
+
+on:
+  workflow_dispatch:
+    inputs:
+      python_bin:
+        description: "Python executable on the runner (e.g. python3, /opt/venv/bin/python)"
+        required: true
+        default: "python3"
+      db_path:
+        description: "Path to SQLite DB on the runner (must exist; CI runners don't have it)"
+        required: true
+        default: "data/ascii_art.db"
+      preset:
+        description: "Model size preset"
+        required: true
+        type: choice
+        options: [small, medium, large]
+        default: medium
+      max_iters:
+        description: "Max training iterations"
+        required: true
+        default: "50000"
+      dtype:
+        description: "Training dtype"
+        required: true
+        type: choice
+        options: [float32, float16, bfloat16]
+        default: bfloat16
+      checkpoint_dir:
+        description: "Where to write checkpoints (persistent path recommended for resume)"
+        required: true
+        default: "models/checkpoints/prod_medium_50k"
+      resume_from:
+        description: "Optional checkpoint to resume from (empty = no resume)"
+        required: false
+        default: ""
+      export_dir:
+        description: "Where to write exported safetensors (config.json + tokenizer.json)"
+        required: true
+        default: "models/exported/prod_medium_50k"
+      export_dtype:
+        description: "Export dtype (Rust expects float safetensors)"
+        required: true
+        type: choice
+        options: [float32, float16, bfloat16]
+        default: float32
+      quantize:
+        description: "Optional weight-only quantized exports"
+        required: true
+        type: choice
+        options: [none, int8, int4, both]
+        default: none
+      batch_size:
+        description: "Per-step batch size"
+        required: true
+        default: "64"
+      gradient_accumulation_steps:
+        description: "Gradient accumulation steps (effective batch = batch_size * this)"
+        required: true
+        default: "4"
+      learning_rate:
+        description: "Base learning rate"
+        required: true
+        default: "6e-4"
+      warmup_iters:
+        description: "Warmup iterations (0 disables warmup)"
+        required: true
+        default: "2000"
+      lr_decay_iters:
+        description: "LR decay iterations (typically == max_iters)"
+        required: true
+        default: "50000"
+      min_lr:
+        description: "Minimum learning rate"
+        required: true
+        default: "6e-5"
+      eval_interval:
+        description: "Eval interval (0 disables eval)"
+        required: true
+        default: "500"
+      eval_iters:
+        description: "Eval batches per eval"
+        required: true
+        default: "200"
+      save_interval:
+        description: "Checkpoint interval (0 disables checkpoints)"
+        required: true
+        default: "5000"
+      log_interval:
+        description: "Log interval (0 disables logs)"
+        required: true
+        default: "10"
+      num_workers:
+        description: "DataLoader workers (tune for IO)"
+        required: true
+        default: "4"
+      compile:
+        description: "Enable torch.compile (PyTorch 2.x; may improve throughput)"
+        required: true
+        type: boolean
+        default: false
+      run_rust_validation:
+        description: "Run Rust CLI inference using the exported model"
+        required: true
+        type: boolean
+        default: true
+      upload_artifacts:
+        description: "Upload run logs + exported model as a workflow artifact"
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHONPATH: python
+  PYTHONUNBUFFERED: "1"
+  # Reduce accidental thread explosions on some setups (OpenBLAS/MKL).
+  OMP_NUM_THREADS: "1"
+  MKL_NUM_THREADS: "1"
+  OPENBLAS_NUM_THREADS: "1"
+  NUMEXPR_NUM_THREADS: "1"
+
+jobs:
+  train-gpu:
+    name: Train + export (self-hosted GPU)
+    runs-on: [self-hosted, gpu]
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Prepare run dir (kept for artifacts)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TS="$(date +%Y%m%d_%H%M%S)"
+          RUN_DIR="$RUNNER_TEMP/ascii_train_gpu_${TS}_${GITHUB_RUN_ID}"
+          mkdir -p "$RUN_DIR"
+          echo "RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
+          echo "LOG_FILE=$RUN_DIR/train_gpu_${TS}.log" >> "$GITHUB_ENV"
+          echo "PYTHON_BIN=${{ inputs.python_bin }}" >> "$GITHUB_ENV"
+          echo "DB_PATH=${{ inputs.db_path }}" >> "$GITHUB_ENV"
+          echo "CKPT_DIR=${{ inputs.checkpoint_dir }}" >> "$GITHUB_ENV"
+          echo "EXPORT_DIR=${{ inputs.export_dir }}" >> "$GITHUB_ENV"
+          echo "Run dir: $RUN_DIR" >> "$GITHUB_STEP_SUMMARY"
+          echo "DB path: \`${{ inputs.db_path }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Checkpoint dir: \`${{ inputs.checkpoint_dir }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Export dir: \`${{ inputs.export_dir }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: GPU + env snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "=== Inputs ==="
+            echo "preset=${{ inputs.preset }}"
+            echo "max_iters=${{ inputs.max_iters }}"
+            echo "dtype=${{ inputs.dtype }}"
+            echo "batch_size=${{ inputs.batch_size }}"
+            echo "gradient_accumulation_steps=${{ inputs.gradient_accumulation_steps }}"
+            echo "learning_rate=${{ inputs.learning_rate }}"
+            echo "warmup_iters=${{ inputs.warmup_iters }}"
+            echo "lr_decay_iters=${{ inputs.lr_decay_iters }}"
+            echo "min_lr=${{ inputs.min_lr }}"
+            echo "eval_interval=${{ inputs.eval_interval }}"
+            echo "eval_iters=${{ inputs.eval_iters }}"
+            echo "save_interval=${{ inputs.save_interval }}"
+            echo "log_interval=${{ inputs.log_interval }}"
+            echo "num_workers=${{ inputs.num_workers }}"
+            echo "compile=${{ inputs.compile }}"
+            echo "quantize=${{ inputs.quantize }}"
+            echo
+            echo "=== nvidia-smi ==="
+            if command -v nvidia-smi >/dev/null 2>&1; then
+              nvidia-smi
+            else
+              echo "nvidia-smi not found"
+            fi
+            echo
+            bash tests/e2e/env_snapshot.sh "$GITHUB_WORKSPACE" "${PYTHON_BIN}" || true
+            echo
+            "${PYTHON_BIN}" - <<'PY'
+from __future__ import annotations
+
+import sys
+
+try:
+    import torch
+except Exception as exc:  # pragma: no cover
+    raise SystemExit(f"ERROR: failed to import torch ({exc.__class__.__name__}: {exc})")
+
+try:
+    import safetensors  # type: ignore
+except Exception as exc:  # pragma: no cover
+    raise SystemExit(
+        f"ERROR: failed to import safetensors ({exc.__class__.__name__}: {exc})"
+    )
+
+print(f"torch_version: {torch.__version__}")
+print(f"safetensors_version: {getattr(safetensors, '__version__', 'unknown')}")
+print(f"cuda_available: {torch.cuda.is_available()}")
+print(f"cuda_device_count: {torch.cuda.device_count()}")
+if torch.cuda.is_available():
+    try:
+        print(f"cuda_bf16_supported: {torch.cuda.is_bf16_supported()}")
+    except Exception as exc:  # pragma: no cover
+        print(f"cuda_bf16_supported: (error: {exc.__class__.__name__})")
+else:
+    sys.exit(
+        "ERROR: torch.cuda.is_available() is False. "
+        "This workflow must run on a machine with a CUDA-enabled torch install."
+    )
+PY
+          } 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Verify DB path
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -f "$DB_PATH" ]]; then
+            echo "ERROR: DB file not found: $DB_PATH" | tee -a "$LOG_FILE"
+            echo "Note: `data/ascii_art.db` is not committed; copy the DB onto the runner and re-run." | tee -a "$LOG_FILE"
+            exit 1
+          fi
+          ls -lh "$DB_PATH" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Train (cuda)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TRAIN_ARGS=(
+            -m train.train
+            --db-path "$DB_PATH"
+            --preset "${{ inputs.preset }}"
+            --device cuda
+            --dtype "${{ inputs.dtype }}"
+            --checkpoint-dir "$CKPT_DIR"
+            --max-iters "${{ inputs.max_iters }}"
+            --batch-size "${{ inputs.batch_size }}"
+            --gradient-accumulation-steps "${{ inputs.gradient_accumulation_steps }}"
+            --learning-rate "${{ inputs.learning_rate }}"
+            --warmup-iters "${{ inputs.warmup_iters }}"
+            --lr-decay-iters "${{ inputs.lr_decay_iters }}"
+            --min-lr "${{ inputs.min_lr }}"
+            --eval-interval "${{ inputs.eval_interval }}"
+            --eval-iters "${{ inputs.eval_iters }}"
+            --save-interval "${{ inputs.save_interval }}"
+            --log-interval "${{ inputs.log_interval }}"
+            --num-workers "${{ inputs.num_workers }}"
+          )
+
+          if [[ -n "${{ inputs.resume_from }}" ]]; then
+            TRAIN_ARGS+=(--resume-from "${{ inputs.resume_from }}")
+          fi
+          if [[ "${{ inputs.compile }}" == "true" ]]; then
+            TRAIN_ARGS+=(--compile)
+          fi
+
+          echo "Running: ${PYTHON_BIN} ${TRAIN_ARGS[*]}" | tee -a "$LOG_FILE"
+          "${PYTHON_BIN}" "${TRAIN_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Export + validate
+        shell: bash
+        run: |
+          set -euo pipefail
+          FINAL_CKPT="$CKPT_DIR/final.pt"
+          if [[ ! -f "$FINAL_CKPT" ]]; then
+            echo "ERROR: expected checkpoint not found: $FINAL_CKPT" | tee -a "$LOG_FILE"
+            exit 1
+          fi
+
+          EXPORT_ARGS=(
+            -m train.export
+            --checkpoint "$FINAL_CKPT"
+            --output-dir "$EXPORT_DIR"
+            --dtype "${{ inputs.export_dtype }}"
+            --quantize "${{ inputs.quantize }}"
+          )
+          echo "Running: ${PYTHON_BIN} ${EXPORT_ARGS[*]}" | tee -a "$LOG_FILE"
+          "${PYTHON_BIN}" "${EXPORT_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Quick Python inference smoke (optional)
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_PATH="$EXPORT_DIR/model.safetensors"
+          if [[ ! -f "$MODEL_PATH" ]]; then
+            echo "Skipping Python inference; missing: $MODEL_PATH" | tee -a "$LOG_FILE"
+            exit 0
+          fi
+          "${PYTHON_BIN}" -m inference.cli "cat" \
+            --model "$MODEL_PATH" \
+            --width 80 --height 40 \
+            --max-tokens 512 \
+            --seed 0 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Install Rust toolchain (for validation)
+        if: ${{ inputs.run_rust_validation }}
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: nightly-2026-01-20
+
+      - name: Rust cache (for validation)
+        if: ${{ inputs.run_rust_validation }}
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          workspaces: |
+            rust/ascii-gen -> target
+
+      - name: Rust inference validation
+        if: ${{ inputs.run_rust_validation }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MODEL_PATH="$EXPORT_DIR/model.safetensors"
+          if [[ ! -f "$MODEL_PATH" ]]; then
+            echo "ERROR: Rust validation missing model: $MODEL_PATH" | tee -a "$LOG_FILE"
+            exit 1
+          fi
+
+          cargo run --manifest-path rust/ascii-gen/Cargo.toml -- \
+            --model "$MODEL_PATH" \
+            --format markdown \
+            --width 80 --max-lines 50 --max-chars 4000 \
+            --seed 0 \
+            "cat" 2>&1 | tee -a "$LOG_FILE"
+
+      - name: Upload training artifacts
+        if: ${{ inputs.upload_artifacts }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: train-gpu-${{ github.run_id }}
+          path: |
+            ${{ env.RUN_DIR }}/**
+            ${{ env.EXPORT_DIR }}/config.json
+            ${{ env.EXPORT_DIR }}/tokenizer.json
+            ${{ env.EXPORT_DIR }}/model.safetensors
+            ${{ env.EXPORT_DIR }}/model_int8.safetensors
+            ${{ env.EXPORT_DIR }}/model_int4.safetensors
+            ${{ env.EXPORT_DIR }}/quant_config.json
+          if-no-files-found: ignore
+          retention-days: 14

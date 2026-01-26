@@ -38,6 +38,51 @@ All Python CLIs assume:
 export PYTHONPATH=python
 ```
 
+## Production training (GPU)
+
+This repo's GitHub-hosted CI is CPU-only. The P1 production run (bd-19v) needs a CUDA machine for ~50k iters on the 500k-row SQLite DB.
+
+Recommended manual run on a CUDA machine (example defaults from bd-19v comments):
+
+```bash
+PYTHONPATH=python ./.venv/bin/python -m train.train \
+  --db-path data/ascii_art.db \
+  --preset medium \
+  --device cuda --dtype bfloat16 \
+  --checkpoint-dir models/checkpoints/prod_medium_50k \
+  --max-iters 50000 --lr-decay-iters 50000 \
+  --save-interval 5000 --eval-interval 500 --log-interval 10 \
+  --batch-size 64 --gradient-accumulation-steps 4 \
+  --learning-rate 6e-4 --warmup-iters 2000 --min-lr 6e-5 \
+  --num-workers 4
+```
+
+Export + validate:
+
+```bash
+PYTHONPATH=python ./.venv/bin/python -m train.export \
+  --checkpoint models/checkpoints/prod_medium_50k/final.pt \
+  --output-dir models/exported/prod_medium_50k \
+  --dtype float32 --quantize none
+```
+
+Rust validation:
+
+```bash
+cargo run --manifest-path rust/ascii-gen/Cargo.toml -- \
+  --model models/exported/prod_medium_50k/model.safetensors \
+  --format markdown --width 80 --max-lines 50 --max-chars 4000 --seed 0 \
+  "cat"
+```
+
+### GitHub Actions (self-hosted GPU runner)
+
+If you have a self-hosted runner labeled `gpu`, you can run the same training/export via `.github/workflows/train_gpu.yml` (manual `workflow_dispatch`).
+
+Notes:
+- The workflow expects the DB to already exist on the runner at the configured `db_path` (it is not committed).
+- The workflow does **not** pip-install `torch` (to avoid overwriting CUDA wheels); point `python_bin` at your pre-provisioned venv/conda env that has a CUDA-enabled torch install.
+
 Train (writes checkpoints under `models/checkpoints/` by default):
 
 ```bash
