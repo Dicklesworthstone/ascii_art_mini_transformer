@@ -22,6 +22,8 @@ log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 log "Python: $PYTHON_BIN"
 
+bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" "$PYTHON_BIN" 2>&1 | tee -a "$LOG_FILE"
+
 export PYTHONPATH="$REPO_ROOT/python"
 
 EXPORT_DIR="${1:-$TMP_DIR/exported}"
@@ -80,4 +82,3 @@ PY
 log "E2E embedded: PASSED"
 log "Artifacts kept under: $TMP_DIR"
 log "Note: project policy forbids auto-cleanup via rm -rf; delete $TMP_DIR manually if desired."
-

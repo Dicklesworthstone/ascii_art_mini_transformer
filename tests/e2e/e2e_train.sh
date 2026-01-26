@@ -22,6 +22,8 @@ log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 log "Python: $PYTHON_BIN"
 
+bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" "$PYTHON_BIN" 2>&1 | tee -a "$LOG_FILE"
+
 export PYTHONPATH="$REPO_ROOT/python"
 
 DB_PATH="$TMP_DIR/train_ascii.db"

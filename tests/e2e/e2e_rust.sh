@@ -12,6 +12,8 @@ log "Repo: $REPO_ROOT"
 log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 
+bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" 2>&1 | tee -a "$LOG_FILE"
+
 log "Running Rust tests (includes Python cross-validation fixtures)..."
 cd "$REPO_ROOT/rust/ascii-gen"
 cargo test 2>&1 | tee -a "$LOG_FILE"

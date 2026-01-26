@@ -90,6 +90,14 @@ pub fn apply_constraints_to_logits(
         return;
     }
 
+    // Avoid empty generations: only permit EOS after we've emitted at least one output token.
+    if decoder.total_chars == 0 {
+        let eos = tokenizer.eos_id() as usize;
+        if let Some(v) = logits.get_mut(eos) {
+            *v = f32::NEG_INFINITY;
+        }
+    }
+
     // If we've hit max width on the last allowed line, end instead of emitting a newline
     // that would create an extra empty row.
     let last_allowed_line = decoder.max_lines.saturating_sub(1);
@@ -134,6 +142,19 @@ pub fn apply_constraints_to_logits(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_eos_disallowed_before_any_output() {
+        let tok = AsciiTokenizer::new();
+        let d = ConstrainedDecoder::new(40, 20, 150);
+        let mut logits = vec![0.0_f32; tok.vocab_size() as usize];
+        apply_constraints_to_logits(&mut logits, &d, tok);
+
+        let eos = tok.eos_id() as usize;
+        let nl = tok.newline_id() as usize;
+        assert!(!logits[eos].is_finite());
+        assert!(logits[nl].is_finite());
+    }
 
     #[test]
     fn test_width_forces_newline() {
