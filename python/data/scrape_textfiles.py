@@ -7,7 +7,7 @@ Target (per beads):
 This is a simple directory listing style site (no pagination). The scraper:
 - Crawls subdirectories under the base path
 - Downloads files and decodes bytes as CP437 (common for ANSI art)
-- Preserves whitespace/newlines
+- Preserves whitespace and line breaks (normalizes line endings to '\n')
 - Inserts into SQLite via `data.db` (dedup by content hash)
 - Optionally writes a JSONL export and a progress file for resumability
 """
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_BASE_URL = "http://artscene.textfiles.com/ansi/"
 
 
-_HREF_RE = re.compile(r'href=["\\\']([^"\\\']+)["\\\']', re.IGNORECASE)
+_HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', re.IGNORECASE)
 _ANSI_ESCAPE_RE = re.compile(r"\x1B\[[0-?]*[ -/]*[@-~]")
 
 

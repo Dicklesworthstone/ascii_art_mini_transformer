@@ -38,8 +38,8 @@ class AugmentationConfig:
 # Character substitution mappings for style variation
 CHAR_SUBSTITUTIONS = {
     "*": ["+", "x", "X", "o", "O"],
-    "-": ["=", "_", "~", "─"],
-    "|": ["!", "I", "l", "│"],
+    "-": ["=", "_", "~"],
+    "|": ["!", "I", "l"],
     "/": ["\\", "|"],
     "\\": ["/", "|"],
     "+": ["*", "x", "#"],
@@ -48,7 +48,7 @@ CHAR_SUBSTITUTIONS = {
     ":": [";", "."],
     "o": ["0", "O", "@"],
     "O": ["0", "o", "@"],
-    "=": ["-", "~", "─"],
+    "=": ["-", "~"],
 }
 
 # Flip mappings for horizontal reflection

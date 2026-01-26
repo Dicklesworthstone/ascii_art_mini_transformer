@@ -27,6 +27,7 @@ data/raw/
 # Local model artifacts
 models/checkpoints/
 models/exported/
+models/training_log.txt
 
 # Generated run state / reports
 ingestion_progress.json

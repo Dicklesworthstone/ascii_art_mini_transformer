@@ -375,7 +375,7 @@ class AsciiTokenizer:
             'style_tokens': STYLE_TOKENS,
             'char_to_id': {
                 k: v for k, v in self._char_to_id.items()
-                if not k.startswith('<')  # Only include printable chars
+                if k not in SPECIAL_TOKENS  # Only exclude special tokens, keep '<' char
             },
         }
         with open(path, 'w', encoding='utf-8') as f:
