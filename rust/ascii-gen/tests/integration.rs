@@ -433,3 +433,290 @@ fn loader_config_errors_when_vocab_size_zero() {
         "error should mention vocab_size validation: {msg}"
     );
 }
+
+// ==================== CLI output format tests ====================
+
+/// Helper to get the path to the built CLI binary.
+fn cli_binary_path() -> std::path::PathBuf {
+    // Prefer cargo-provided paths when available.
+    //
+    // Cargo sets CARGO_BIN_EXE_<name> for integration tests, but the exact key can vary by
+    // platform/tooling (notably for hyphenated bin names), so try a couple.
+    for key in ["CARGO_BIN_EXE_ascii-gen", "CARGO_BIN_EXE_ascii_gen"] {
+        if let Ok(path) = std::env::var(key) {
+            let path = std::path::PathBuf::from(path);
+            if path.exists() {
+                return path;
+            }
+        }
+    }
+
+    // Fallback: derive from target dir layout (best-effort).
+    let mut path = std::env::current_exe().expect("current_exe");
+    path.pop(); // Remove test binary name
+    path.pop(); // Remove deps/
+    path.push("ascii-gen");
+    path
+}
+
+/// Helper to get the crossval model path.
+fn crossval_model_path() -> std::path::PathBuf {
+    std::path::PathBuf::from("test_data/crossval/model.safetensors")
+}
+
+#[test]
+fn cli_info_prints_embedded_availability() {
+    use std::process::Command;
+
+    let output = Command::new(cli_binary_path())
+        .arg("--info")
+        .output()
+        .expect("run cli --info");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("Embedded weights:"),
+        "--info should print embedded weights line: {stdout}"
+    );
+    // Should print either "yes" or "no"
+    assert!(
+        stdout.contains("yes") || stdout.contains("no"),
+        "--info should indicate yes/no for embedded: {stdout}"
+    );
+    // Should include a reason in parentheses
+    assert!(
+        stdout.contains('(') && stdout.contains(')'),
+        "--info should include reason in parentheses: {stdout}"
+    );
+}
+
+#[test]
+fn cli_info_prints_model_configuration() {
+    use std::process::Command;
+
+    let output = Command::new(cli_binary_path())
+        .arg("--info")
+        .output()
+        .expect("run cli --info");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Should print model info header
+    assert!(
+        stdout.contains("Model Info") || stdout.contains("Configuration"),
+        "--info should print model info: {stdout}"
+    );
+    // Should print key config values
+    assert!(
+        stdout.contains("Vocabulary") || stdout.contains("vocab"),
+        "--info should print vocabulary size: {stdout}"
+    );
+    assert!(
+        stdout.contains("Layers") || stdout.contains("layer"),
+        "--info should print layer count: {stdout}"
+    );
+}
+
+#[test]
+fn cli_format_json_produces_valid_json() {
+    use std::process::Command;
+
+    let model_path = crossval_model_path();
+    if !model_path.exists() {
+        eprintln!("Skipping: crossval model not available");
+        return;
+    }
+
+    let output = Command::new(cli_binary_path())
+        .args([
+            "--model",
+            model_path.to_str().unwrap(),
+            "--format",
+            "json",
+            "--width",
+            "30",
+            "--max-lines",
+            "10",
+            "--max-chars",
+            "50",
+            "--temperature",
+            "0",
+            "--seed",
+            "42",
+            "test",
+        ])
+        .output()
+        .expect("run cli --format json");
+
+    assert!(
+        output.status.success(),
+        "CLI should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let json: serde_json::Value =
+        serde_json::from_str(&stdout).expect("--format json should produce valid JSON");
+
+    // Check required fields
+    assert!(
+        json.get("prompt").is_some(),
+        "JSON should have 'prompt' field"
+    );
+    assert!(
+        json.get("style").is_some(),
+        "JSON should have 'style' field"
+    );
+    assert!(json.get("art").is_some(), "JSON should have 'art' field");
+    assert!(
+        json.get("width").is_some(),
+        "JSON should have 'width' field"
+    );
+    assert!(
+        json.get("height").is_some(),
+        "JSON should have 'height' field"
+    );
+    assert!(
+        json.get("total_chars").is_some(),
+        "JSON should have 'total_chars' field"
+    );
+    assert!(
+        json.get("generation_time_ms").is_some(),
+        "JSON should have 'generation_time_ms' field"
+    );
+    assert!(
+        json.get("temperature").is_some(),
+        "JSON should have 'temperature' field"
+    );
+    assert!(
+        json.get("top_k").is_some(),
+        "JSON should have 'top_k' field"
+    );
+    assert!(
+        json.get("top_p").is_some(),
+        "JSON should have 'top_p' field"
+    );
+    assert!(
+        json.get("max_width").is_some(),
+        "JSON should have 'max_width' field"
+    );
+    assert!(
+        json.get("max_lines").is_some(),
+        "JSON should have 'max_lines' field"
+    );
+    assert!(
+        json.get("max_chars").is_some(),
+        "JSON should have 'max_chars' field"
+    );
+
+    // Verify prompt matches
+    assert_eq!(json["prompt"].as_str(), Some("test"));
+    // Verify constraints match
+    assert_eq!(json["max_width"].as_u64(), Some(30));
+    assert_eq!(json["max_lines"].as_u64(), Some(10));
+}
+
+#[test]
+fn cli_format_markdown_wraps_in_code_fences() {
+    use std::process::Command;
+
+    let model_path = crossval_model_path();
+    if !model_path.exists() {
+        eprintln!("Skipping: crossval model not available");
+        return;
+    }
+
+    let output = Command::new(cli_binary_path())
+        .args([
+            "--model",
+            model_path.to_str().unwrap(),
+            "--format",
+            "markdown",
+            "--width",
+            "30",
+            "--max-lines",
+            "10",
+            "--max-chars",
+            "50",
+            "--temperature",
+            "0",
+            "--seed",
+            "42",
+            "test",
+        ])
+        .output()
+        .expect("run cli --format markdown");
+
+    assert!(
+        output.status.success(),
+        "CLI should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Markdown format should start with ``` and end with ```
+    assert!(
+        stdout.starts_with("```"),
+        "--format markdown should start with code fence: {stdout}"
+    );
+    assert!(
+        stdout.trim_end().ends_with("```"),
+        "--format markdown should end with code fence: {stdout}"
+    );
+}
+
+#[test]
+fn cli_format_plain_outputs_raw_art() {
+    use std::process::Command;
+
+    let model_path = crossval_model_path();
+    if !model_path.exists() {
+        eprintln!("Skipping: crossval model not available");
+        return;
+    }
+
+    let output = Command::new(cli_binary_path())
+        .args([
+            "--model",
+            model_path.to_str().unwrap(),
+            "--format",
+            "plain",
+            "--width",
+            "30",
+            "--max-lines",
+            "10",
+            "--max-chars",
+            "50",
+            "--temperature",
+            "0",
+            "--seed",
+            "42",
+            "test",
+        ])
+        .output()
+        .expect("run cli --format plain");
+
+    assert!(
+        output.status.success(),
+        "CLI should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    // Plain format should NOT have markdown fences or JSON structure
+    assert!(
+        !stdout.starts_with("```"),
+        "--format plain should not have markdown fences"
+    );
+    assert!(
+        !stdout.starts_with('{'),
+        "--format plain should not be JSON"
+    );
+    // Should have some content
+    assert!(
+        !stdout.trim().is_empty(),
+        "--format plain should produce output"
+    );
+}
