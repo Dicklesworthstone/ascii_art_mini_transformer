@@ -11,6 +11,7 @@ from python.data.db import (
     insert_ascii_art,
     normalize_newlines,
     search_ascii_art,
+    update_ascii_art,
     upsert_ascii_art,
 )
 
@@ -195,6 +196,87 @@ class TestDatabaseSchemaAndCrud(unittest.TestCase):
         self.assertEqual(row["tags"], expected_tags)
         self.assertEqual(row["char_histogram"], expected_hist)
         self.assertEqual(row["content_hash"], res.content_hash)
+
+
+class TestUpdateSemantics(unittest.TestCase):
+    def _open_temp_db(self) -> sqlite3.Connection:
+        handle = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+        db_path = Path(handle.name)
+        handle.close()
+
+        conn = connect(db_path)
+        initialize(conn, schema_path=_schema_path())
+        self.addCleanup(conn.close)
+        return conn
+
+    def test_rejects_unsupported_columns(self) -> None:
+        conn = self._open_temp_db()
+        art_id = insert_ascii_art(conn, raw_text="hello\n", source="unit_test")
+        self.assertIsNotNone(art_id)
+        if art_id is None:
+            self.fail("Expected insert_ascii_art to return an id")
+
+        with self.assertRaises(ValueError):
+            update_ascii_art(conn, art_id=art_id, fields={"raw_text": "nope"})
+
+    def test_tags_list_converts_to_json_string(self) -> None:
+        conn = self._open_temp_db()
+        art_id = insert_ascii_art(conn, raw_text="hello\n", source="unit_test")
+        self.assertIsNotNone(art_id)
+        if art_id is None:
+            self.fail("Expected insert_ascii_art to return an id")
+
+        update_ascii_art(conn, art_id=art_id, fields={"tags": ["a", "b"]})
+        row = conn.execute(
+            "SELECT tags FROM ascii_art WHERE id = ?;", (art_id,)
+        ).fetchone()
+        self.assertIsNotNone(row)
+        if row is None:
+            self.fail("Expected row to exist after update")
+
+        self.assertEqual(row["tags"], json.dumps(["a", "b"], ensure_ascii=False))
+
+    def test_is_valid_bool_converts_to_int(self) -> None:
+        conn = self._open_temp_db()
+        art_id = insert_ascii_art(conn, raw_text="hello\n", source="unit_test")
+        self.assertIsNotNone(art_id)
+        if art_id is None:
+            self.fail("Expected insert_ascii_art to return an id")
+
+        update_ascii_art(conn, art_id=art_id, fields={"is_valid": False})
+        row = conn.execute(
+            "SELECT is_valid FROM ascii_art WHERE id = ?;", (art_id,)
+        ).fetchone()
+        self.assertIsNotNone(row)
+        if row is None:
+            self.fail("Expected row to exist after update")
+
+        self.assertEqual(row["is_valid"], 0)
+
+    def test_updated_at_changes_after_update(self) -> None:
+        conn = self._open_temp_db()
+        art_id = insert_ascii_art(conn, raw_text="hello\n", source="unit_test")
+        self.assertIsNotNone(art_id)
+        if art_id is None:
+            self.fail("Expected insert_ascii_art to return an id")
+
+        sentinel = "2000-01-01 00:00:00"
+        conn.execute(
+            "UPDATE ascii_art SET updated_at = ? WHERE id = ?;",
+            (sentinel, art_id),
+        )
+        update_ascii_art(conn, art_id=art_id, fields={"title": "new title"})
+
+        row = conn.execute(
+            "SELECT updated_at FROM ascii_art WHERE id = ?;",
+            (art_id,),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        if row is None:
+            self.fail("Expected row to exist after update")
+
+        self.assertIsNotNone(row["updated_at"])
+        self.assertNotEqual(row["updated_at"], sentinel)
 
 
 class TestMetadataEdgeCases(unittest.TestCase):
