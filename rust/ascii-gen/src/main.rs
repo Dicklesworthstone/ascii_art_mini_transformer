@@ -76,7 +76,7 @@ struct Cli {
     #[arg(long, default_value = "50")]
     max_lines: usize,
 
-    /// Maximum total characters
+    /// Maximum total output characters (0 = disabled)
     #[arg(long, default_value = "4000")]
     max_chars: usize,
 
@@ -345,8 +345,20 @@ fn generate_once(model: &AsciiGPT, cli: &Cli, prompt: &str) -> Result<(String, A
     let tok = AsciiTokenizer::new();
     let prompt_tokens = tok.encode_prompt(cli.width, cli.max_lines, cli.style.as_str(), prompt);
 
+    let max_new_tokens = if cli.max_chars > 0 {
+        cli.max_chars
+    } else if cli.width > 0 && cli.max_lines > 0 {
+        // When max_chars is disabled (0), bound the outer loop to the maximum possible
+        // visible output implied by width/line limits (including inter-line newlines).
+        cli.width
+            .saturating_mul(cli.max_lines)
+            .saturating_add(cli.max_lines.saturating_sub(1))
+    } else {
+        GenerationConfig::default().max_new_tokens
+    };
+
     let cfg = GenerationConfig {
-        max_new_tokens: cli.max_chars,
+        max_new_tokens,
         max_width: cli.width,
         max_lines: cli.max_lines,
         max_chars: cli.max_chars,

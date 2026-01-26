@@ -24,6 +24,7 @@ import logging
 import random
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional, cast
@@ -264,7 +265,9 @@ def _extract_art_cards(
     return cards
 
 
-def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
+def scrape_ascii_art_archive(
+    config: ScrapeConfig, session: requests.Session | None = None
+) -> None:
     base_url = _normalize_base_url(config.base_url)
     if not config.dry_run:
         config.output_jsonl.parent.mkdir(parents=True, exist_ok=True)
@@ -276,7 +279,9 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
         progress = ProgressState(processed_pages=set())
         logger.info("Dry run: progress tracking disabled.")
 
-    session = requests.Session()
+    owns_session = session is None
+    if session is None:
+        session = requests.Session()
     session.headers.update(
         {
             "User-Agent": (
@@ -295,7 +300,8 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
     items_seen = 0
 
     start = urljoin(base_url, "gallery")
-    queue: list[str] = [start]
+    queue: deque[str] = deque([start])
+    queued: set[str] = {start}
     seen: set[str] = set()
 
     jsonl = None
@@ -304,7 +310,8 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
 
     try:
         while queue:
-            page_url = queue.pop(0)
+            page_url = queue.popleft()
+            queued.discard(page_url)
             if page_url in seen:
                 continue
             seen.add(page_url)
@@ -320,8 +327,9 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
 
                 # Discover additional pages first (even if this page was already processed).
                 for link in _extract_gallery_links(soup, base_url):
-                    if link not in seen:
+                    if link not in seen and link not in queued:
                         queue.append(link)
+                        queued.add(link)
 
                 if not config.dry_run and page_url in progress.processed_pages:
                     _rate_limit(config.delay_seconds, config.jitter_seconds)
@@ -398,6 +406,8 @@ def scrape_ascii_art_archive(config: ScrapeConfig) -> None:
             _rate_limit(config.delay_seconds, config.jitter_seconds)
 
     finally:
+        if owns_session:
+            session.close()
         if jsonl is not None:
             jsonl.close()
 

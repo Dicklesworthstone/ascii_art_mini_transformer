@@ -19,6 +19,7 @@ from python.data.scrape_asciiart import (
     _extract_gallery_links,
     _normalize_base_url,
     _path_category_parts,
+    _rate_limit,
     _same_site,
 )
 
@@ -151,6 +152,27 @@ class TestAsciiArtExtractGalleryLinks(unittest.TestCase):
         links = _extract_gallery_links(soup, "https://example.com/")
 
         self.assertEqual(len(links), 1)
+
+    def test_skips_missing_or_empty_href(self) -> None:
+        from bs4 import BeautifulSoup
+
+        html = """
+        <html>
+        <body>
+            <a class="card-gallery">No href</a>
+            <a class="card-gallery" href="">Empty</a>
+            <a class="card-gallery" href="/ok">OK</a>
+        </body>
+        </html>
+        """
+        soup = BeautifulSoup(html, "html.parser")
+        links = _extract_gallery_links(soup, "https://example.com/")
+        self.assertEqual(links, ["https://example.com/ok"])
+
+
+class TestAsciiArtRateLimit(unittest.TestCase):
+    def test_rate_limit_sleeps_when_delay_positive(self) -> None:
+        _rate_limit(0.001, 0.0)
 
 
 # ============================================================================

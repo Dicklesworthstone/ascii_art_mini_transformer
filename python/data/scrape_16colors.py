@@ -306,11 +306,14 @@ def scrape_16colo_rs(
     max_files: Optional[int],
     insert_into_db: bool,
     dry_run: bool,
+    session: requests.Session | None = None,
 ) -> None:
     base_url = base_url.rstrip("/") + "/"
     output_jsonl.parent.mkdir(parents=True, exist_ok=True)
 
-    session = requests.Session()
+    owns_session = session is None
+    if session is None:
+        session = requests.Session()
     session.headers.update(
         {
             "User-Agent": (
@@ -460,6 +463,8 @@ def scrape_16colo_rs(
             _rate_limit(delay_seconds, jitter_seconds)
 
     finally:
+        if owns_session:
+            session.close()
         if jsonl is not None:
             jsonl.close()
         if conn is not None:

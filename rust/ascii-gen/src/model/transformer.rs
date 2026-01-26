@@ -147,13 +147,9 @@ impl AsciiGPT {
         // Final layer norm
         x = self.ln_f.forward(&x)?;
 
-        // LM head: (B, T, n_embd) @ (n_embd, vocab_size) -> (B, T, vocab_size)
-        // Note: The lm_head Linear expects (vocab_size, n_embd) weights,
-        // but we loaded it as (n_embd, vocab_size) matching token_embedding.
-        // We need to transpose or handle this correctly.
-        // Actually, Linear.forward does: x @ weight.T, so if weight is (vocab_size, n_embd),
-        // then x @ weight.T gives (B, T, vocab_size). We need weight (vocab_size, n_embd).
-        // The lm_head should be linear(n_embd, vocab_size) which gives weight (vocab_size, n_embd).
+        // LM head: Candle `Linear` stores weights as (out, in) = (vocab_size, n_embd) and
+        // applies `x @ weight.T`, yielding (B, T, vocab_size). When `lm_head.weight` is
+        // missing in the safetensors, we reuse `token_embedding` weights for tying.
         self.lm_head.forward(&x)
     }
 

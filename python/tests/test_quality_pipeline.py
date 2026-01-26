@@ -115,3 +115,63 @@ def test_retry_on_lock_does_not_swallow_non_lock_operational_errors() -> None:
         assert "not a lock" in str(exc)
     else:
         raise AssertionError("Expected OperationalError to be raised")
+
+
+def test_retry_on_lock_retries_when_locked() -> None:
+    attempts = 0
+
+    def _flaky() -> int:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise sqlite3.OperationalError("database is locked")
+        return 7
+
+    out = qp.retry_on_lock(_flaky, max_retries=5, base_delay=0.0, max_delay=0.0)
+    assert out == 7
+    assert attempts == 3
+
+
+def test_get_size_bucket_boundaries() -> None:
+    assert qp.get_size_bucket(9, 11) == "tiny"  # 99
+    assert qp.get_size_bucket(10, 10) == "small"  # 100
+    assert qp.get_size_bucket(10, 99) == "small"  # 990
+    assert qp.get_size_bucket(10, 100) == "medium"  # 1000
+    assert qp.get_size_bucket(50, 99) == "medium"  # 4950
+    assert qp.get_size_bucket(50, 100) == "large"  # 5000
+    assert qp.get_size_bucket(100, 199) == "large"  # 19900
+    assert qp.get_size_bucket(100, 200) == "huge"  # 20000
+
+
+def test_find_near_duplicates_and_generate_report(tmp_path: Path) -> None:
+    if not qp.HAS_RAPIDFUZZ:
+        import pytest
+
+        pytest.skip("rapidfuzz not installed")
+
+    conn = db.connect(tmp_path / "quality_dups.db")
+    db.initialize(conn, schema_path=_schema_path())
+
+    line = "0123456789" * 10
+    text1 = f"{line}\n{line}"
+    text2 = f"{line}\n{line[:-1]}X"
+
+    id1 = db.insert_ascii_art(conn, raw_text=text1, source="test", is_valid=True)
+    id2 = db.insert_ascii_art(conn, raw_text=text2, source="test", is_valid=True)
+    assert id1 is not None and id2 is not None
+
+    pairs = qp.find_near_duplicates(conn, threshold=95, sample_size=2, batch_size=10)
+    assert len(pairs) == 1
+    a, b, score = pairs[0]
+    assert {a, b} == {id1, id2}
+    assert score >= 95
+
+    out_path = tmp_path / "report.json"
+    report = qp.generate_report(
+        conn, output_path=out_path, run_dedup=True, dry_run=True, limit=None
+    )
+    assert out_path.exists()
+    assert report.near_duplicates_found == 1
+    assert out_path.with_suffix(".duplicates.json").exists()
+
+    conn.close()

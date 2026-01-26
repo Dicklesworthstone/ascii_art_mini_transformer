@@ -253,7 +253,9 @@ _BINARY_EXTENSIONS: set[str] = {
 }
 
 
-def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
+def scrape_textfiles(
+    config: ScrapeConfig, session: requests.Session | None = None
+) -> ProgressState:
     base_url = _normalize_base_url(config.base_url)
     load_progress = config.progress_path is not None
     persist_progress = config.progress_path is not None and not config.dry_run
@@ -263,7 +265,9 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
         else ProgressState(processed_dirs=set(), processed_files=set())
     )
 
-    session = requests.Session()
+    owns_session = session is None
+    if session is None:
+        session = requests.Session()
     session.headers.update({"User-Agent": "ascii-art-mini-transformer/0.1 (+github)"})
 
     conn: Optional[sqlite3.Connection] = None
@@ -435,7 +439,8 @@ def scrape_textfiles(config: ScrapeConfig) -> ProgressState:
                 break
 
     finally:
-        session.close()
+        if owns_session:
+            session.close()
         if jsonl_fp is not None:
             jsonl_fp.close()
         if conn is not None:
@@ -468,7 +473,7 @@ def _parse_args(argv: Optional[Iterable[str]] = None) -> ScrapeConfig:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     return ScrapeConfig(
-        base_url=str(args.base_url),
+        base_url=_normalize_base_url(str(args.base_url)),
         db_path=Path(args.db_path),
         output_jsonl=Path(args.output_jsonl) if args.output_jsonl is not None else None,
         progress_path=Path(args.progress) if args.progress is not None else None,

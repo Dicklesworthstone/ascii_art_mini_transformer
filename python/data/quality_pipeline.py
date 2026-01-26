@@ -31,17 +31,24 @@ try:
     HAS_RAPIDFUZZ = True
 except ImportError:
     HAS_RAPIDFUZZ = False
-    logging.warning("rapidfuzz not installed - near-duplicate detection disabled")
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("quality_pipeline.log"),
-    ],
-)
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging(*, verbose: bool) -> None:
+    # Avoid configuring logging on import; configure only when running as a CLI.
+    level = logging.DEBUG if verbose else logging.INFO
+    root = logging.getLogger()
+    if root.handlers:
+        root.setLevel(level)
+        return
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("quality_pipeline.log"),
+        ],
+    )
 
 
 def retry_on_lock(
@@ -404,8 +411,9 @@ def main() -> int:
 
     args = parser.parse_args()
 
+    _configure_logging(verbose=bool(args.verbose))
     if args.verbose:
-        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Verbose logging enabled.")
 
     if not args.db_path.exists():
         logger.error(f"Database not found: {args.db_path}")

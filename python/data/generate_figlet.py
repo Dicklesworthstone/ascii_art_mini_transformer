@@ -26,16 +26,21 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from data.db import UpsertResult, connect, initialize, upsert_ascii_art  # noqa: E402
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("figlet_generation.log"),
-    ],
-)
 logger = logging.getLogger(__name__)
+
+
+def _configure_logging() -> None:
+    # Avoid configuring logging on import; configure only when running as a CLI.
+    if logging.getLogger().handlers:
+        return
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("figlet_generation.log"),
+        ],
+    )
 
 
 def retry_on_lock(
@@ -747,6 +752,7 @@ def generate_dataset(
 
 def main() -> int:
     """Main entry point."""
+    _configure_logging()
     if which("figlet") is None:
         logger.error("Missing dependency: `figlet` binary not found in PATH.")
         logger.error(

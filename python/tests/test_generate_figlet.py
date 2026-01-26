@@ -10,8 +10,11 @@ Tests cover:
 
 from __future__ import annotations
 
+import os
 import shutil
+import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -21,13 +24,58 @@ from python.data.generate_figlet import (
     EXTRA_WORDS,
     _word_list,
     discover_fonts,
+    generate_dataset,
+    generate_figlet,
+    generate_texts_for_font,
     is_valid_output,
+    main,
+    retry_on_lock,
+    test_font as figlet_test_font,
 )
 
 
 def _make_temp_dir(prefix: str) -> Path:
     # Project policy forbids auto-deleting temp dirs from tests.
     return Path(tempfile.mkdtemp(prefix=prefix))
+
+
+def _install_fake_figlet(bin_dir: Path) -> Path:
+    figlet = bin_dir / "figlet"
+    figlet.write_text(
+        """#!/usr/bin/env python3
+import pathlib
+import sys
+
+args = sys.argv[1:]
+font = None
+if "-f" in args:
+    i = args.index("-f")
+    if i + 1 < len(args):
+        font = args[i + 1]
+    args = args[:i] + args[i + 2 :]
+
+text = " ".join(args)
+stem = pathlib.Path(font).stem if font else ""
+
+if "fail" in stem:
+    raise SystemExit(2)
+if "empty" in stem:
+    print("", end="")
+    raise SystemExit(0)
+if "wide" in stem:
+    print("X" * 501)
+    raise SystemExit(0)
+if "tall" in stem:
+    for _ in range(101):
+        print("X")
+    raise SystemExit(0)
+
+print(text)
+""",
+        encoding="utf-8",
+    )
+    figlet.chmod(0o755)
+    return figlet
 
 
 class TestWordList(unittest.TestCase):
@@ -280,6 +328,207 @@ class TestFigletIntegration(unittest.TestCase):
         # Empty input may produce empty output or minimal output
         # The key is it shouldn't crash
         self.assertEqual(result.returncode, 0)
+
+
+class TestFakeFigletHelpers(unittest.TestCase):
+    def test_retry_on_lock_retries_then_succeeds(self) -> None:
+        attempts = 0
+
+        def _flaky() -> int:
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise sqlite3.OperationalError("database is locked")
+            return 123
+
+        out = retry_on_lock(_flaky, max_retries=5, base_delay=0.0, max_delay=0.0)
+        self.assertEqual(out, 123)
+        self.assertEqual(attempts, 3)
+
+    def test_retry_on_lock_raises_after_exhaustion(self) -> None:
+        def _always_locked() -> int:
+            raise sqlite3.OperationalError("database is locked")
+
+        with self.assertRaises(sqlite3.OperationalError):
+            retry_on_lock(_always_locked, max_retries=2, base_delay=0.0, max_delay=0.0)
+
+    def test_test_font_and_generate_figlet_with_fake_binary(self) -> None:
+        tmpdir = _make_temp_dir("ascii_fake_figlet_")
+        bin_dir = tmpdir / "bin"
+        bin_dir.mkdir()
+        _install_fake_figlet(bin_dir)
+
+        fonts_dir = tmpdir / "fonts"
+        fonts_dir.mkdir()
+        good = fonts_dir / "good.flf"
+        good.touch()
+        wide = fonts_dir / "wide.flf"
+        wide.touch()
+        tall = fonts_dir / "tall.flf"
+        tall.touch()
+        empty = fonts_dir / "empty.flf"
+        empty.touch()
+        fail = fonts_dir / "fail.flf"
+        fail.touch()
+
+        old_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{old_path}"
+        try:
+            ok = figlet_test_font(good)
+            self.assertTrue(ok.works)
+
+            too_wide = figlet_test_font(wide)
+            self.assertFalse(too_wide.works)
+            self.assertIn("too wide", too_wide.reason.lower())
+
+            too_tall = figlet_test_font(tall)
+            self.assertFalse(too_tall.works)
+            self.assertIn("too tall", too_tall.reason.lower())
+
+            empty_out = figlet_test_font(empty)
+            self.assertFalse(empty_out.works)
+            self.assertIn("empty", empty_out.reason.lower())
+
+            failed = figlet_test_font(fail)
+            self.assertFalse(failed.works)
+            self.assertIn("exit code", failed.reason.lower())
+
+            self.assertIsNone(generate_figlet("HI", fail))
+            out = generate_figlet("HI", good)
+            self.assertIsNotNone(out)
+            self.assertTrue(out.strip())
+        finally:
+            os.environ["PATH"] = old_path
+
+    def test_generate_texts_for_font_emits_letter_digit_and_word(self) -> None:
+        tmpdir = _make_temp_dir("ascii_fake_figlet_texts_")
+        bin_dir = tmpdir / "bin"
+        bin_dir.mkdir()
+        _install_fake_figlet(bin_dir)
+
+        fonts_dir = tmpdir / "fonts"
+        fonts_dir.mkdir()
+        font_path = fonts_dir / "good.flf"
+        font_path.touch()
+
+        old_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{old_path}"
+        try:
+            letter_art, _desc, meta = next(
+                generate_texts_for_font(
+                    font_path,
+                    "good",
+                    include_letters=True,
+                    include_digits=False,
+                    words=[],
+                )
+            )
+            self.assertEqual(meta["type"], "letter")
+            self.assertTrue(letter_art.strip())
+
+            digit_art, _desc, meta = next(
+                generate_texts_for_font(
+                    font_path,
+                    "good",
+                    include_letters=False,
+                    include_digits=True,
+                    words=[],
+                )
+            )
+            self.assertEqual(meta["type"], "digit")
+            self.assertTrue(digit_art.strip())
+
+            word_art, _desc, meta = next(
+                generate_texts_for_font(
+                    font_path,
+                    "good",
+                    include_letters=False,
+                    include_digits=False,
+                    words=["HI"],
+                )
+            )
+            self.assertEqual(meta["type"], "word")
+            self.assertEqual(meta["input_text"], "HI")
+            self.assertTrue(word_art.strip())
+        finally:
+            os.environ["PATH"] = old_path
+
+    def test_generate_dataset_inserts_rows_with_fake_figlet(self) -> None:
+        tmpdir = _make_temp_dir("ascii_fake_figlet_dataset_")
+        bin_dir = tmpdir / "bin"
+        bin_dir.mkdir()
+        _install_fake_figlet(bin_dir)
+
+        fonts_dir = tmpdir / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "good.flf").touch()
+
+        db_path = tmpdir / "figlet.db"
+
+        old_path = os.environ.get("PATH", "")
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{old_path}"
+        try:
+            stats = generate_dataset(
+                fonts_dir=fonts_dir,
+                db_path=str(db_path),
+                batch_size=1,
+                max_fonts=1,
+                include_letters=False,
+                include_digits=False,
+                word_set="base",
+                stop_at_total_rows=1,
+            )
+        finally:
+            os.environ["PATH"] = old_path
+
+        self.assertEqual(stats.fonts_tested, 1)
+        self.assertEqual(stats.fonts_working, 1)
+        self.assertGreaterEqual(stats.total_generated, 1)
+        self.assertGreaterEqual(stats.inserted, 1)
+        self.assertEqual(stats.errors, 0)
+
+        conn = sqlite3.connect(str(db_path))
+        try:
+            total = conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+        finally:
+            conn.close()
+        self.assertGreaterEqual(int(total), 1)
+
+    def test_main_runs_with_fake_figlet(self) -> None:
+        tmpdir = _make_temp_dir("ascii_fake_figlet_main_")
+        bin_dir = tmpdir / "bin"
+        bin_dir.mkdir()
+        _install_fake_figlet(bin_dir)
+
+        fonts_dir = tmpdir / "fonts"
+        fonts_dir.mkdir()
+        (fonts_dir / "good.flf").touch()
+
+        db_path = tmpdir / "main.db"
+
+        old_path = os.environ.get("PATH", "")
+        old_argv = list(sys.argv)
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{old_path}"
+        sys.argv = [
+            "generate_figlet",
+            "--fonts-dir",
+            str(fonts_dir),
+            "--db-path",
+            str(db_path),
+            "--batch-size",
+            "1",
+            "--max-fonts",
+            "1",
+            "--mode",
+            "words",
+            "--stop-at-total-rows",
+            "1",
+        ]
+        try:
+            self.assertEqual(main(), 0)
+        finally:
+            os.environ["PATH"] = old_path
+            sys.argv = old_argv
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ The pipeline handles:
 
 from __future__ import annotations
 
+import functools
 import os
 import random
 import sqlite3
@@ -65,6 +66,12 @@ def _compute_width_height(raw_text: str) -> tuple[int, int]:
     height = len(lines)
     width = max((len(line) for line in lines), default=0)
     return width, height
+
+
+def _seed_worker(worker_id: int, *, seed: int) -> None:
+    worker_seed = int(seed) + int(worker_id)
+    random.seed(worker_seed)
+    torch.manual_seed(worker_seed)
 
 
 class AsciiArtDataset(Dataset[Batch]):
@@ -474,11 +481,6 @@ def create_dataloaders(
         Tuple of (train_loader, val_loader)
     """
 
-    def seed_worker(worker_id: int) -> None:
-        worker_seed = seed + worker_id
-        random.seed(worker_seed)
-        torch.manual_seed(worker_seed)
-
     # Create dataset
     tokenizer = tokenizer or get_tokenizer()
     config = config or DataConfig(db_path=str(db_path))
@@ -526,15 +528,19 @@ def create_dataloaders(
 
     # Get pad_id from tokenizer
     pad_id = tokenizer.pad_token_id
+    batch_collate = functools.partial(collate_fn, pad_id=pad_id)
+    worker_init_fn = (
+        functools.partial(_seed_worker, seed=int(seed)) if num_workers > 0 else None
+    )
 
     # Create DataLoaders
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        collate_fn=lambda b: collate_fn(b, pad_id=pad_id),
+        collate_fn=batch_collate,
         num_workers=num_workers,
-        worker_init_fn=seed_worker if num_workers > 0 else None,
+        worker_init_fn=worker_init_fn,
         pin_memory=pin_memory,
         drop_last=True,  # Drop incomplete batches for consistent batch size
     )
@@ -543,9 +549,9 @@ def create_dataloaders(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        collate_fn=lambda b: collate_fn(b, pad_id=pad_id),
+        collate_fn=batch_collate,
         num_workers=num_workers,
-        worker_init_fn=seed_worker if num_workers > 0 else None,
+        worker_init_fn=worker_init_fn,
         pin_memory=pin_memory,
         drop_last=False,
     )
@@ -592,7 +598,7 @@ def create_single_loader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        collate_fn=lambda b: collate_fn(b, pad_id=pad_id),
+        collate_fn=functools.partial(collate_fn, pad_id=pad_id),
         num_workers=num_workers,
         pin_memory=pin_memory,
     )

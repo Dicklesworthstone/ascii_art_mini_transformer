@@ -18,6 +18,7 @@ from python.train.dataset import (
     DataConfig,
     _compute_width_height,
     collate_fn,
+    create_dataloaders,
 )
 
 
@@ -568,6 +569,40 @@ class TestDatasetPickling(unittest.TestCase):
         self.assertEqual(len(unpickled), len(dataset))
         dataset.close()
         unpickled.close()
+
+    def test_dataloader_hooks_are_pickleable(self) -> None:
+        """collate_fn/worker_init_fn should be pickleable for spawn-based workers."""
+        import pickle
+
+        conn = _create_temp_db()
+        db_path = Path(conn.execute("PRAGMA database_list").fetchone()[2])
+
+        # Ensure enough samples for split + batching.
+        for i in range(10):
+            _insert_test_art(conn, f"art {i}\nxxx\n")
+        conn.close()
+
+        config = DataConfig(db_path=str(db_path), min_chars=3)
+        tokenizer = get_tokenizer()
+
+        train_loader, val_loader = create_dataloaders(
+            db_path,
+            tokenizer,
+            batch_size=2,
+            val_split=0.5,
+            num_workers=2,
+            config=config,
+        )
+
+        assert train_loader.collate_fn is not None
+        assert val_loader.collate_fn is not None
+        assert train_loader.worker_init_fn is not None
+        assert val_loader.worker_init_fn is not None
+
+        pickle.dumps(train_loader.collate_fn)
+        pickle.dumps(val_loader.collate_fn)
+        pickle.dumps(train_loader.worker_init_fn)
+        pickle.dumps(val_loader.worker_init_fn)
 
 
 if __name__ == "__main__":
