@@ -1,36 +1,223 @@
-# ASCII Art Mini Transformer
+<div align="center">
 
-A tiny, CPU-efficient transformer (~10–50MB) specialized for generating high-quality ASCII art.
+```text
+   ___   _____ _____ _____   ___      __      __
+  / _ | / ___// ___//  _/  / _ |____/ /_____/ /_
+ / __ |/ /__ / /__ _/ /   / __ / __/ __/ __/ __/
+/_/ |_|\___/ \___/ /___/ /_/ |_\__/\__/\__/\__/
 
-Core idea: treat ASCII art as a **2D grid** (row/column) with **character-level tokenization** + **2D positional encoding**, plus **constraint-conditioned generation** (width/height limits).
+         tiny 2D-aware transformer for ASCII art
+```
 
-## Status
+[![CI](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/ci.yml/badge.svg)](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/ci.yml)
+[![E2E](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/e2e.yml/badge.svg)](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/e2e.yml)
 
-This repo is currently being bootstrapped from beads issues in `.beads/`.
+</div>
 
-## Quickstart (E2E)
+**ASCII Art Mini Transformer** trains a small, CPU-friendly decoder-only transformer and runs **constraint-respecting** ASCII generation in both **Python** and a **single Rust CLI binary**.
+
+Core idea: ASCII art is a **2D grid** (rows/columns), not just a 1D token stream — so this project uses **character-level tokenization** + **2D positional encoding**, then decodes with **hard width/height/max-chars constraints**.
+
+**One-command smoke test (recommended):**
 
 ```bash
 tests/e2e/e2e_full.sh
 ```
 
-This runs: data sanity → tiny train smoke test → export → Rust inference (cross-validated) → embedded-weights smoke test.
+This runs: DB sanity → tiny CPU train → export → Python↔Rust parity checks → Rust inference → embedded-weights smoke.  
+E2E scripts write timestamped logs into a temp directory and intentionally do **not** auto-delete it (project policy forbids `rm -rf`).
 
-Scripts write timestamped logs into a temp directory and intentionally do not auto-delete it (project policy forbids `rm -rf`).
+---
 
-## Python Setup
+## TL;DR
+
+### The Problem
+
+General LLMs can describe ASCII art, but they often struggle to **compose coherent 2D shapes** while also obeying hard constraints like “80 columns, 40 lines”.
+
+### The Solution
+
+A tiny transformer trained on ASCII/ANSI art **as a 2D grid**, with:
+- **2D positional encoding** (row + column)
+- **character-level vocabulary** (stable + small)
+- **constrained decoding** (width/height/max-chars enforced every step)
+- **Python↔Rust parity tests** to prevent silent drift
+
+### Why use this repo?
+
+| Feature | Why it matters | Concrete proof in repo |
+|---|---|---|
+| 2D-aware modeling | Better structure and alignment | `python/model/positional_encoding.py`, `rust/ascii-gen/src/model/embedding.rs` |
+| Hard constraints | Never “just a bit over” width/height | `python/inference/constraints.py`, `rust/ascii-gen/src/inference/constraints.rs` |
+| CPU-first Rust inference | Fast, shippable CLI | `rust/ascii-gen/src/main.rs` |
+| Export format is stable | Train in PyTorch, ship in Rust | `python/train/export.py` → `.safetensors` + `config.json` |
+| Deterministic parity fixtures | Catch regressions in decoding/model math | `rust/ascii-gen/test_data/crossval/` |
+| No-mock tests + verbose E2E logs | Confidence without “fake” coverage | `python/tests/`, `tests/e2e/*.sh` |
+
+---
+
+## Quick Example (5–10 commands)
+
+```bash
+# 1) Python deps
+python3 -m venv .venv
+.venv/bin/pip install -r python/requirements.txt
+
+# 2) Rust deps (nightly toolchain pinned in CI)
+rustup toolchain install nightly-2026-01-20
+rustup override set nightly-2026-01-20
+
+# 3) End-to-end smoke test (keeps a temp dir with logs/artifacts)
+tests/e2e/e2e_full.sh
+
+# 4) Run Rust CLI with your exported weights (example path)
+cargo run --manifest-path rust/ascii-gen/Cargo.toml -- \
+  --model models/exported/prod_medium_50k/model.safetensors \
+  --format markdown --width 80 --max-lines 40 --max-chars 4000 --seed 0 \
+  "cat"
+```
+
+---
+
+## Design Philosophy
+
+1) **Grid-first modeling**: treat newlines as geometry, not punctuation.  
+2) **Determinism beats vibes**: parity fixtures + seeded sampling prevent “works on my machine”.  
+3) **Constraints are non-negotiable**: decoding enforces width/height/max-chars *per step*.  
+4) **CPU inference is a product constraint**: Rust path stays small and dependency-light.  
+5) **No destructive automation**: scripts keep logs/artifacts; no auto-cleanups.
+
+---
+
+## Comparison (What this is / isn’t)
+
+| Approach | Strengths | Weaknesses | When to choose it |
+|---|---|---|---|
+| This repo | Structured 2D output + strict constraints + shippable Rust CLI | Needs dataset + training to get good | You want real ASCII art generation, not just “ASCII-ish text” |
+| General LLM prompting | Easy, no training | Weak spatial consistency; constraint violations | Quick demos, low stakes |
+| FIGlet only | Great for banners | Not general ASCII art | CLI banners / logos only |
+| Classic image→ASCII converters | Accurate *given an image* | Doesn’t “imagine” from text | You already have a source image |
+
+---
+
+## Installation
+
+### Option A: “Just run tests” (recommended)
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r python/requirements.txt
+tests/e2e/e2e_full.sh
 ```
 
-## Database (Phase 1)
+### Option B: Python-only
 
-- Canonical SQLite schema: `data/schema.sql`
-- Python utilities (schema init, hashing/dedup, FTS search): `python/data/db.py`
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r python/requirements.txt
+export PYTHONPATH=python
+# Run inference from an exported model directory (see "Quick Start" below for a tiny export):
+.venv/bin/python -m inference.cli "cat" --model models/exported/smoke/model.safetensors
+```
 
-## Training + Export (Python)
+### Option C: Rust CLI (from source)
+
+```bash
+rustup toolchain install nightly-2026-01-20
+cargo build --release --manifest-path rust/ascii-gen/Cargo.toml
+./rust/ascii-gen/target/release/ascii-gen --help
+```
+
+### Optional system tools
+
+- `sqlite3` (for inspecting DB files)
+- `figlet` (only required if you run `python/data/generate_figlet.py`)
+
+---
+
+## Quick Start
+
+1) **Run the E2E suite** to confirm your environment (recommended):
+   ```bash
+   tests/e2e/e2e_full.sh
+   ```
+2) **Create a tiny local SQLite DB** (the production DB is not committed):
+   ```bash
+   export PYTHONPATH=python
+   .venv/bin/python - <<'PY'
+from __future__ import annotations
+
+from pathlib import Path
+
+from data.db import connect, initialize, insert_ascii_art
+
+db_path = Path("data/ascii_art.db")
+conn = connect(db_path)
+initialize(conn)
+
+samples = [
+    ("  /\\\\_/\\\\\\n ( o.o )\\n  > ^ <", "cat", "animal"),
+    (" __|__\\n(  o o )\\n \\\\  ^ /\\n  |||", "robot", "object"),
+    ("#####\\n#   #\\n#####", "box", "simple"),
+]
+for raw_text, desc, category in samples:
+    insert_ascii_art(
+        conn,
+        raw_text=raw_text,
+        source="quickstart",
+        title=desc,
+        description=desc,
+        category=category,
+    )
+print("db:", db_path, "rows:", conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0])
+conn.close()
+PY
+   ```
+3) **Train a tiny model (CPU smoke):**
+   ```bash
+   .venv/bin/python -m train.train \
+     --db-path data/ascii_art.db \
+     --checkpoint-dir models/checkpoints/smoke \
+     --device cpu --dtype float32 \
+     --block-size 256 --n-layer 2 --n-head 2 --n-embd 64 --dropout 0.0 \
+     --batch-size 4 --gradient-accumulation-steps 1 \
+     --learning-rate 0.001 --warmup-iters 1 --max-iters 50 \
+     --eval-interval 1000000 --save-interval 1000000 --num-workers 0
+   ```
+4) **Export to Rust-compatible safetensors:**
+   ```bash
+   .venv/bin/python -m train.export \
+     --checkpoint models/checkpoints/smoke/final.pt \
+     --output-dir models/exported/smoke \
+     --dtype float32 --quantize none
+   ```
+5) **Generate with Rust:**
+   ```bash
+   cargo run --manifest-path rust/ascii-gen/Cargo.toml -- \
+     --model models/exported/smoke/model.safetensors \
+     --width 60 --max-lines 20 --max-chars 800 --seed 0 \
+     "cat"
+   ```
+
+---
+
+## Command Reference
+
+### E2E scripts (with detailed logging)
+
+- Full pipeline: `tests/e2e/e2e_full.sh`
+- Data sanity + quality pipeline: `tests/e2e/e2e_data.sh`
+- CPU training smoke test: `tests/e2e/e2e_train.sh`
+- Export smoke test: `tests/e2e/e2e_python_export.sh <export_dir>`
+- Python inference smoke: `tests/e2e/e2e_python_infer.sh` (uses `E2E_MODEL_PATH`)
+- Rust parity + inference: `tests/e2e/e2e_rust.sh` (uses `E2E_MODEL_PATH`)
+- Quantized weight loading: `tests/e2e/e2e_quant.sh` (uses `E2E_MODEL_DIR`)
+- Embedded weights smoke: `tests/e2e/e2e_embedded.sh <export_dir>`
+- Lint/typecheck gates: `tests/e2e/e2e_lint.sh`
+
+All scripts keep a temp dir with logs and artifacts; they print the location on failure.
+
+### Python CLIs
 
 All Python CLIs assume:
 
@@ -38,183 +225,200 @@ All Python CLIs assume:
 export PYTHONPATH=python
 ```
 
-## Production training (GPU)
+- Scrape ASCIIArt.eu gallery: `python -m data.scrape_asciiart --help`
+- Scrape 16colo.rs demoscene packs: `python -m data.scrape_16colors --help`
+- Scrape textfiles.com artscene: `python -m data.scrape_textfiles --help`
+- Ingest HuggingFace datasets: `python -m data.ingest_huggingface --help`
+- Generate FIGlet banners (requires `figlet`): `python -m data.generate_figlet --help`
+- Run data quality pipeline: `python -m data.quality_pipeline --help`
+- Train: `python -m train.train --help`
+- Export: `python -m train.export --help`
+- Python inference: `python -m inference.cli --help`
 
-This repo's GitHub-hosted CI is CPU-only. The P1 production run (bd-19v) needs a CUDA machine for ~50k iters on the 500k-row SQLite DB.
-
-Recommended manual run on a CUDA machine (example defaults from bd-19v comments):
+### Rust CLI (`ascii-gen`)
 
 ```bash
-PYTHONPATH=python ./.venv/bin/python -m train.train \
-  --db-path data/ascii_art.db \
-  --preset medium \
-  --device cuda --dtype bfloat16 \
-  --checkpoint-dir models/checkpoints/prod_medium_50k \
-  --max-iters 50000 --lr-decay-iters 50000 \
-  --save-interval 5000 --eval-interval 500 --log-interval 10 \
-  --batch-size 64 --gradient-accumulation-steps 4 \
-  --learning-rate 6e-4 --warmup-iters 2000 --min-lr 6e-5 \
-  --num-workers 4
+cargo run --manifest-path rust/ascii-gen/Cargo.toml -- --help
 ```
 
-Export + validate:
+Examples:
 
 ```bash
-PYTHONPATH=python ./.venv/bin/python -m train.export \
-  --checkpoint models/checkpoints/prod_medium_50k/final.pt \
-  --output-dir models/exported/prod_medium_50k \
-  --dtype float32 --quantize none
-```
-
-Rust validation:
-
-```bash
+# External float weights
 cargo run --manifest-path rust/ascii-gen/Cargo.toml -- \
-  --model models/exported/prod_medium_50k/model.safetensors \
-  --format markdown --width 80 --max-lines 50 --max-chars 4000 --seed 0 \
+  --model models/exported/model.safetensors \
+  --format markdown \
+  --width 80 --max-lines 50 --max-chars 4000 \
+  --seed 0 \
+  "cat"
+
+# Quantized weight-only export (requires quant_config.json next to the weights)
+cargo run --manifest-path rust/ascii-gen/Cargo.toml -- \
+  --model models/exported/model_int4.safetensors \
   "cat"
 ```
 
-### GitHub Actions (self-hosted GPU runner)
+Embedded (single-file) binary:
 
-If you have a self-hosted runner labeled `gpu`, you can run the same training/export via `.github/workflows/train_gpu.yml` (manual `workflow_dispatch`).
+```bash
+ASCII_GEN_EXPORT_DIR=models/exported \
+  cargo build --release --manifest-path rust/ascii-gen/Cargo.toml --features embedded-weights
+./rust/ascii-gen/target/release/ascii-gen "cat"
+```
+
+---
+
+## Configuration
+
+### Export directory layout
+
+An export directory is Rust-loadable when it contains:
+
+```text
+model.safetensors
+config.json
+tokenizer.json
+```
+
+Optional (weight-only quantization):
+
+```text
+model_int8.safetensors
+model_int4.safetensors
+quant_config.json
+```
+
+### Example `config.json`
+
+```json
+{
+  "vocab_size": 107,
+  "block_size": 2048,
+  "n_layer": 6,
+  "n_head": 6,
+  "n_embd": 384,
+  "dropout": 0.1,
+  "max_rows": 100,
+  "max_cols": 200,
+  "newline_token_id": 7,
+  "pad_token_id": 0,
+  "bos_token_id": 1,
+  "eos_token_id": 2
+}
+```
 
 Notes:
-- The workflow expects the DB to already exist on the runner at the configured `db_path` (it is not committed).
-- The workflow does **not** pip-install `torch` (to avoid overwriting CUDA wheels); point `python_bin` at your pre-provisioned venv/conda env that has a CUDA-enabled torch install.
+- `n_embd` must be divisible by `n_head`.
+- `block_size` is the context window (maximum prompt+generated tokens the model “sees”).
+- `max_rows/max_cols` are the bounds for 2D positional encoding (clamped during inference).
 
-Train (writes checkpoints under `models/checkpoints/` by default):
+### Training presets
 
-```bash
-.venv/bin/python -m train.train --db-path data/ascii_art.db
+`python -m train.train --preset small|medium|large` sets default `n_layer/n_head/n_embd/block_size`, and you can override any of them via flags.
+
+---
+
+## Architecture (Data Flow)
+
+```text
+          (scrape / ingest / generate)
+      ┌──────────────────────────────────┐
+      │ python/data/* (sources + cleanup)│
+      └───────────────┬──────────────────┘
+                      │ upsert + dedup (sha256)
+                      v
+               ┌───────────────┐
+               │ SQLite DB      │
+               │ data/ascii_art │
+               └───────┬───────┘
+                       │ batches (tokenize + constraints prefix)
+                       v
+             ┌───────────────────┐
+             │ PyTorch training   │
+             │ python/train/train │
+             └─────────┬─────────┘
+                       │ checkpoint.pt
+                       v
+             ┌───────────────────┐
+             │ Export (safetensors)│
+             │ python/train/export │
+             └─────────┬─────────┘
+                       │ config.json + tokenizer.json
+                       v
+      ┌──────────────────────────────────┐
+      │ Rust CLI inference (ascii-gen)   │
+      │ candle + constrained decoding    │
+      └──────────────────────────────────┘
 ```
 
-Train with a model size preset (overridable via `--n-layer/--n-head/--n-embd/--block-size`):
+The repo includes parity fixtures and integration tests to keep Python and Rust behavior aligned.
 
-```bash
-.venv/bin/python -m train.train --db-path data/ascii_art.db --preset small
-```
+---
 
-Export from a training checkpoint to a Rust-compatible safetensors directory:
+## Troubleshooting
 
-```bash
-.venv/bin/python -m train.export \
-  --checkpoint models/checkpoints/final.pt \
-  --output-dir models/exported \
-  --dtype float32 \
-  --quantize none
-```
+**1) `ModuleNotFoundError: No module named 'torch'`**
+- Install Python deps: `.venv/bin/pip install -r python/requirements.txt`
 
-Optional: export quantized weights (weight-only) for smaller files:
+**2) `figlet: command not found`**
+- Install `figlet` using your package manager (only needed for FIGlet dataset generation).
 
-```bash
-.venv/bin/python -m train.export --checkpoint models/checkpoints/final.pt --output-dir models/exported --quantize int8
-# or: --quantize int4
-# or: --quantize both
-```
+**3) Rust build fails / edition toolchain mismatch**
+- Use the pinned toolchain from CI:
+  ```bash
+  rustup toolchain install nightly-2026-01-20
+  rustup override set nightly-2026-01-20
+  ```
 
-Fresh (untrained) exports are also supported for smoke tests via `--preset` and `--n-layer/--n-head/--n-embd/--block-size`.
+**4) “Quantized safetensors detected, but quant_config.json was not found…”**
+- When running quantized weights, keep `quant_config.json` next to `model_int8.safetensors` / `model_int4.safetensors`.
 
-## Python Inference CLI
+**5) “Failed to load checkpoint in safe weights_only mode…” (Python)**
+- Older checkpoints may require pickle-based loading. Only if you trust the file:
+  ```bash
+  .venv/bin/python -m inference.cli "cat" --checkpoint path/to.ckpt.pt --unsafe-load
+  ```
 
-Run from a training checkpoint:
+---
 
-```bash
-.venv/bin/python -m inference.cli "cat" --checkpoint models/checkpoints/final.pt
-```
+## Limitations (Honest)
 
-Run from exported float safetensors (expects `config.json` next to the weights):
+- **Quality depends on data + training**: the tiny CPU-smoke model is for verification, not art quality.
+- **GitHub-hosted CI is CPU-only**: the production run (`bd-19v`) requires a CUDA machine.
+- **Scrapers can break**: sites change; always use rate limits.
+- **No web UI**: this is a dataset/training/CLI repo, not an app.
+- **No license file yet**: assume proprietary until a license is added.
 
-```bash
-.venv/bin/python -m inference.cli "cat" --model models/exported/model.safetensors
-```
+---
 
-## Rust CLI (Phase 3)
+## FAQ
 
-The `ascii-gen` CLI lives at `rust/ascii-gen/`.
+**Why character-level tokens instead of BPE?**  
+ASCII art is literally made of characters; keeping them atomic stabilizes training and makes exports small.
 
-External weights:
+**Why 2D positional encoding?**  
+Rows/columns are the “geometry” of ASCII art. 2D positions make it easier for a small model to reason about structure.
 
-```bash
-cargo run --manifest-path rust/ascii-gen/Cargo.toml -- --model models/exported/model.safetensors "cat"
-```
+**Where is the big dataset DB?**  
+The SQLite DB is not committed at production size. E2E scripts generate temporary DBs for testing.
 
-Quantized weights (weight-only): export with `train.export --quantize int8|int4|both` which writes `model_int8.safetensors` / `model_int4.safetensors` plus `quant_config.json`; then run:
+**Can I run the full training in CI?**  
+Not on GitHub-hosted runners (CPU-only). Use `.github/workflows/train_gpu.yml` on a self-hosted runner labeled `gpu`.
 
-```bash
-cargo run --manifest-path rust/ascii-gen/Cargo.toml -- --model models/exported/model_int4.safetensors "cat"
-```
+**How do Python and Rust stay consistent?**  
+Small deterministic fixtures + parity tests under `rust/ascii-gen/test_data/crossval/` catch drift.
 
-Keep `quant_config.json` in the same directory as the quantized weights.
+**Can I ship a single binary with weights?**  
+Yes. Build Rust with `--features embedded-weights` and set `ASCII_GEN_EXPORT_DIR` to your export directory.
 
-Embedded weights (single-file): build with `--features embedded-weights`. By default this embeds from `models/exported/`, or you can point at a specific export directory:
+---
 
-```bash
-ASCII_GEN_EXPORT_DIR=models/exported cargo build --release --manifest-path rust/ascii-gen/Cargo.toml --features embedded-weights
-./rust/ascii-gen/target/release/ascii-gen --info
-./rust/ascii-gen/target/release/ascii-gen "cat"   # no --model needed
-```
+## About Contributions
 
-Issue tracking is via `br` / `bv` (beads_rust). See `AGENTS.md` for workflow.
+> *About Contributions:* Please don't take this the wrong way, but I do not accept outside contributions for any of my projects. I simply don't have the mental bandwidth to review anything, and it's my name on the thing, so I'm responsible for any problems it causes; thus, the risk-reward is highly asymmetric from my perspective. I'd also have to worry about other "stakeholders," which seems unwise for tools I mostly make for myself for free. Feel free to submit issues, and even PRs if you want to illustrate a proposed fix, but know I won't merge them directly. Instead, I'll have Claude or Codex review submissions via `gh` and independently decide whether and how to address them. Bug reports in particular are welcome. Sorry if this offends, but I want to avoid wasted time and hurt feelings. I understand this isn't in sync with the prevailing open-source ethos that seeks community contributions, but it's the only way I can move at this velocity and keep my sanity.
 
-## Python Tests + Coverage
+---
 
-Run tests:
+## License
 
-```bash
-pytest python/tests/ -v
-```
-
-Run tests with coverage report (terminal output):
-
-```bash
-pytest python/tests/ --cov=python --cov-report=term-missing
-```
-
-Generate HTML coverage report (written under a temp dir and kept; no auto-delete per project policy):
-
-```bash
-tests/coverage/run_coverage.sh --html
-```
-Optionally, also emit an XML report (in the same artifacts dir):
-
-```bash
-tests/coverage/run_coverage.sh --xml
-```
-
-## E2E tests
-
-- Full suite: `tests/e2e/e2e_full.sh`
-- Data-only: `tests/e2e/e2e_data.sh`
-- Train smoke: `tests/e2e/e2e_train.sh`
-- Python export: `tests/e2e/e2e_python_export.sh`
-- Rust-only (includes Python↔Rust cross-validation): `tests/e2e/e2e_rust.sh`
-- Embedded weights smoke: `tests/e2e/e2e_embedded.sh`
-- Lint/typecheck gates: `tests/e2e/e2e_lint.sh`
-
-The lint script runs:
-- Python: `ruff check`, `ruff format --check`, `mypy --strict`
-- Rust: `cargo fmt --check`, `cargo clippy --all-targets`
-
-## Parity fixtures (Python ↔ Rust)
-
-The Rust integration tests validate Python ↔ Rust parity using small, deterministic fixtures under `rust/ascii-gen/test_data/crossval/`.
-
-When to regenerate:
-- Tokenizer changes (IDs, special tokens, exported `tokenizer.json` format)
-- Constraint/decoding changes (logit masking, stopping rules, width/height behavior)
-- Model math changes (attention/LN behavior, output filtering) that affect logits/generation
-
-Workflow:
-1. Regenerate fixtures:
-   - `PYTHONPATH=. .venv/bin/python python/tests/generate_crossval_data.py`
-2. Review the diffs:
-   - `git diff rust/ascii-gen/test_data/crossval/`
-   - Drift should be explainable by the intentional change; otherwise treat as a bug.
-3. Re-run parity checks:
-   - `cargo test --manifest-path rust/ascii-gen/Cargo.toml --test integration`
-
-Keep fixtures small/reviewable:
-- Prefer tiny model configs (the generator uses a small, fixed-seed model).
-- Limit cases to a handful of prompts/seeds; keep generated token counts short.
-- If a change is expected to alter outputs, mention why in the commit message.
+No license file is currently included in this repository. Treat the code as proprietary until a license is added.
