@@ -8,6 +8,7 @@ Run from the project root:
 
 Output files are written to: rust/ascii-gen/test_data/crossval/
 """
+
 from __future__ import annotations
 
 import json
@@ -59,9 +60,15 @@ def main() -> int:
         GoldenCase(prompt="cat", width=40, height=20, style="art", seed=0),
         GoldenCase(prompt="star", width=20, height=10, style="simple", seed=1),
         GoldenCase(prompt="HELLO", width=80, height=8, style="banner", seed=2),
+        GoldenCase(
+            prompt="hello, world!", width=128, height=64, style="detailed", seed=3
+        ),
+        GoldenCase(prompt="wrap", width=4, height=10, style="art", seed=4),
     ]
 
-    paths = generate_golden_tests(model, tokenizer, golden_dir, cases=cases, device="cpu")
+    paths = generate_golden_tests(
+        model, tokenizer, golden_dir, cases=cases, device="cpu"
+    )
     for p in paths:
         print(f"  Created: {p}")
 
@@ -78,20 +85,27 @@ def main() -> int:
         ("cat", 40, 20, "art"),
         ("star", 20, 10, "simple"),
         ("HELLO", 80, 8, "banner"),
+        ("hello, world!", 128, 64, "detailed"),
+        ("wrap", 4, 10, "art"),
     ]
     for prompt, width, height, style in prompt_cases:
-        ids = tokenizer.encode_inference_prompt(prompt, width=width, height=height, style=style)
-        tokenizer_golden["encode_inference_prompt"].append({
-            "prompt": prompt,
-            "width": width,
-            "height": height,
-            "style": style,
-            "ids": ids,
-        })
+        ids = tokenizer.encode_inference_prompt(
+            prompt, width=width, height=height, style=style
+        )
+        tokenizer_golden["encode_inference_prompt"].append(
+            {
+                "prompt": prompt,
+                "width": width,
+                "height": height,
+                "style": style,
+                "ids": ids,
+            }
+        )
 
     # Text encoding tests
     text_cases = [
         "Hello World",
+        "hello, world!",
         "!@#$%^&*()",
         "ASCII",
         "",
@@ -99,11 +113,13 @@ def main() -> int:
     for text in text_cases:
         ids = tokenizer.encode(text)
         decoded = tokenizer.decode(ids)
-        tokenizer_golden["encode_text"].append({
-            "text": text,
-            "ids": ids,
-            "decoded": decoded,
-        })
+        tokenizer_golden["encode_text"].append(
+            {
+                "text": text,
+                "ids": ids,
+                "decoded": decoded,
+            }
+        )
 
     tokenizer_path = output_dir / "tokenizer_golden.json"
     tokenizer_path.write_text(json.dumps(tokenizer_golden, indent=2))
@@ -127,7 +143,9 @@ def main() -> int:
 
     def is_output_token(token_id: int) -> bool:
         """Check if a token is an output token (newline or printable ASCII)."""
-        return token_id == NEWLINE_ID or (PRINTABLE_ASCII_START <= token_id <= PRINTABLE_ASCII_END)
+        return token_id == NEWLINE_ID or (
+            PRINTABLE_ASCII_START <= token_id <= PRINTABLE_ASCII_END
+        )
 
     def mask_non_output_tokens(logits_tensor, tok):
         """Mask non-output tokens (control tokens) to -inf to match Rust behavior."""
@@ -178,26 +196,27 @@ def main() -> int:
             generated.append(next_token)
             decoder.update(next_token, tokenizer)
 
-            input_tensor = torch.cat([
-                input_tensor,
-                torch.tensor([[next_token]], dtype=torch.long)
-            ], dim=1)
+            input_tensor = torch.cat(
+                [input_tensor, torch.tensor([[next_token]], dtype=torch.long)], dim=1
+            )
 
             if decoder.should_stop(tokenizer):
                 break
 
-        greedy_golden.append({
-            "case": {
-                "prompt": case.prompt,
-                "width": case.width,
-                "height": case.height,
-                "style": case.style,
-                "seed": case.seed,
-            },
-            "prompt_ids": input_ids,
-            "generated_ids": generated,
-            "full_sequence": input_ids + generated,
-        })
+        greedy_golden.append(
+            {
+                "case": {
+                    "prompt": case.prompt,
+                    "width": case.width,
+                    "height": case.height,
+                    "style": case.style,
+                    "seed": case.seed,
+                },
+                "prompt_ids": input_ids,
+                "generated_ids": generated,
+                "full_sequence": input_ids + generated,
+            }
+        )
 
     greedy_path = output_dir / "greedy_golden.json"
     greedy_path.write_text(json.dumps(greedy_golden, indent=2))
