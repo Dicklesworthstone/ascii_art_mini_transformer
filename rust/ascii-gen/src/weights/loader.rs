@@ -67,7 +67,17 @@ pub fn load_external_model(model_path: &Path, device: &Device) -> Result<AsciiGP
     load_bytes_auto(&data, config, device, Some(model_path), None).context("load external weights")
 }
 
-fn load_config_for_model(model_path: &Path) -> Result<ModelConfig> {
+/// Load config.json from the same directory as the model weights.
+///
+/// If config.json exists, parses and validates it. If missing, returns default config.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - config.json exists but cannot be read
+/// - config.json exists but contains invalid JSON
+/// - config.json exists but config validation fails (e.g., n_embd not divisible by n_head)
+pub fn load_config_for_model(model_path: &Path) -> Result<ModelConfig> {
     let Some(parent) = model_path.parent() else {
         return Ok(ModelConfig::default());
     };

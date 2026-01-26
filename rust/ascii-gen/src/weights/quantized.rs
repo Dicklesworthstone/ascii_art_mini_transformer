@@ -14,13 +14,21 @@ struct QuantConfigFile {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub(super) struct QuantScheme {
+pub struct QuantScheme {
     weights_file: String,
     #[allow(dead_code)]
     precision: String,
     #[allow(dead_code)]
     format_version: u32,
     quantized_layers: HashMap<String, QuantLayer>,
+}
+
+impl QuantScheme {
+    /// Returns the weights filename this scheme applies to.
+    #[must_use]
+    pub fn weights_file(&self) -> &str {
+        &self.weights_file
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -60,7 +68,17 @@ fn is_quantized_tensor_name(name: &str) -> bool {
         .is_some_and(|(_, suffix)| suffix == "scale")
 }
 
-pub(super) fn select_scheme_for_weights(
+/// Select the quantization scheme for the given weights filename.
+///
+/// Parses the `quant_config.json` content and returns the scheme whose
+/// `weights_file` field matches the given filename.
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - The JSON cannot be parsed as a valid `quant_config.json`
+/// - No scheme's `weights_file` matches the given filename
+pub fn select_scheme_for_weights(
     quant_config_json: &str,
     weights_filename: &str,
 ) -> Result<QuantScheme> {
