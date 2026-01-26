@@ -15,8 +15,20 @@ TS="$(date +%Y%m%d_%H%M%S)"
 TMP_DIR="$(mktemp -d -t ascii_e2e_py_infer_${TS}_XXXXXX)"
 LOG_FILE="$TMP_DIR/e2e_py_infer_${TS}.log"
 
-log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE" >/dev/null; }
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE"; }
 fail() { log "FAILED: $*"; exit 1; }
+
+CURRENT_STEP="setup"
+SECONDS=0
+on_exit() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "E2E python inference: FAILED (step=$CURRENT_STEP status=$status elapsed=${SECONDS}s)" >&2
+    echo "Artifacts kept under: $TMP_DIR" >&2
+    echo "Log file: $LOG_FILE" >&2
+  fi
+}
+trap on_exit EXIT
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
@@ -40,6 +52,7 @@ log "Python: $PYTHON_BIN"
 log "Model: $MODEL_PATH"
 log "Limits: width=$WIDTH height=$HEIGHT max_tokens=$MAX_TOKENS"
 
+CURRENT_STEP="env_snapshot"
 bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" "$PYTHON_BIN" 2>&1 | tee -a "$LOG_FILE"
 
 if [[ ! -f "$MODEL_PATH" ]]; then
@@ -53,6 +66,7 @@ export PYTHONPATH="$REPO_ROOT/python"
 
 OUT_FILE="$TMP_DIR/generated.txt"
 log "Running python inference CLI..."
+CURRENT_STEP="inference_cli"
 "$PYTHON_BIN" -m inference.cli \
   cat \
   --model "$MODEL_PATH" \
@@ -70,6 +84,7 @@ log "Python output:"
 cat "$OUT_FILE" | tee -a "$LOG_FILE"
 
 log "Validating constraints..."
+CURRENT_STEP="validate_output"
 "$PYTHON_BIN" - <<PY | tee -a "$LOG_FILE"
 from __future__ import annotations
 
@@ -92,4 +107,3 @@ PY
 log "E2E Python inference: PASSED"
 log "Artifacts kept under: $TMP_DIR"
 log "Note: project policy forbids auto-cleanup via rm -rf; delete $TMP_DIR manually if desired."
-

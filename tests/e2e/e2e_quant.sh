@@ -25,10 +25,23 @@ LOG_FILE="$TMP_DIR/e2e_quant_${TS}.log"
 log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE"; }
 fail() { log "FAILED: $*"; exit 1; }
 
+CURRENT_STEP="setup"
+SECONDS=0
+on_exit() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "E2E quant: FAILED (step=$CURRENT_STEP status=$status elapsed=${SECONDS}s)" >&2
+    echo "Artifacts kept under: $TMP_DIR" >&2
+    echo "Log file: $LOG_FILE" >&2
+  fi
+}
+trap on_exit EXIT
+
 log "Repo: $REPO_ROOT"
 log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 
+CURRENT_STEP="env_snapshot"
 bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" 2>&1 | tee -a "$LOG_FILE"
 
 MODEL_DIR="${E2E_MODEL_DIR:-$REPO_ROOT/models/exported}"
@@ -54,6 +67,7 @@ cd "$REPO_ROOT/rust/ascii-gen"
 
 # Test INT8 quantized model
 log "Testing INT8 quantized model..."
+CURRENT_STEP="int8_generate"
 OUT_INT8="$TMP_DIR/generated_int8.txt"
 cargo run --quiet -- \
   --model "$INT8_MODEL" \
@@ -70,6 +84,7 @@ log "INT8 output:"
 cat "$OUT_INT8" | tee -a "$LOG_FILE"
 
 # Validate INT8 output
+CURRENT_STEP="int8_validate"
 python3 - <<PY | tee -a "$LOG_FILE"
 from __future__ import annotations
 from pathlib import Path
@@ -92,6 +107,7 @@ log "INT8 quantized model: PASSED"
 
 # Test INT4 quantized model
 log "Testing INT4 quantized model..."
+CURRENT_STEP="int4_generate"
 OUT_INT4="$TMP_DIR/generated_int4.txt"
 cargo run --quiet -- \
   --model "$INT4_MODEL" \
@@ -108,6 +124,7 @@ log "INT4 output:"
 cat "$OUT_INT4" | tee -a "$LOG_FILE"
 
 # Validate INT4 output
+CURRENT_STEP="int4_validate"
 python3 - <<PY | tee -a "$LOG_FILE"
 from __future__ import annotations
 from pathlib import Path

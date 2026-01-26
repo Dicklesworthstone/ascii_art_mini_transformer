@@ -6,7 +6,19 @@ TS="$(date +%Y%m%d_%H%M%S)"
 TMP_DIR="$(mktemp -d -t ascii_e2e_data_${TS}_XXXXXX)"
 LOG_FILE="$TMP_DIR/e2e_data_${TS}.log"
 
-log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE" >/dev/null; }
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE"; }
+
+CURRENT_STEP="setup"
+SECONDS=0
+on_exit() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "E2E data: FAILED (step=$CURRENT_STEP status=$status elapsed=${SECONDS}s)" >&2
+    echo "Artifacts kept under: $TMP_DIR" >&2
+    echo "Log file: $LOG_FILE" >&2
+  fi
+}
+trap on_exit EXIT
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
@@ -22,12 +34,14 @@ log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 log "Python: $PYTHON_BIN"
 
+CURRENT_STEP="env_snapshot"
 bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" "$PYTHON_BIN" 2>&1 | tee -a "$LOG_FILE"
 
 export PYTHONPATH="$REPO_ROOT/python"
 DB_PATH="$TMP_DIR/test_ascii.db"
 
 log "Creating test DB + inserting sample rows..."
+CURRENT_STEP="create_db"
 "$PYTHON_BIN" - <<PY | tee -a "$LOG_FILE"
 from __future__ import annotations
 
@@ -66,6 +80,7 @@ conn.close()
 PY
 
 log "Running quality pipeline (dry-run, no dedup, limit=100)..."
+CURRENT_STEP="quality_pipeline"
 "$PYTHON_BIN" -m data.quality_pipeline \
   --db-path "$DB_PATH" \
   --output "$TMP_DIR/quality_report.json" \

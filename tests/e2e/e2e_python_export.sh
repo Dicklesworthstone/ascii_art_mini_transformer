@@ -6,7 +6,19 @@ TS="$(date +%Y%m%d_%H%M%S)"
 TMP_DIR="$(mktemp -d -t ascii_e2e_export_${TS}_XXXXXX)"
 LOG_FILE="$TMP_DIR/e2e_export_${TS}.log"
 
-log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE" >/dev/null; }
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE"; }
+
+CURRENT_STEP="setup"
+SECONDS=0
+on_exit() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "E2E export: FAILED (step=$CURRENT_STEP status=$status elapsed=${SECONDS}s)" >&2
+    echo "Artifacts kept under: $TMP_DIR" >&2
+    echo "Log file: $LOG_FILE" >&2
+  fi
+}
+trap on_exit EXIT
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
@@ -22,6 +34,7 @@ log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 log "Python: $PYTHON_BIN"
 
+CURRENT_STEP="env_snapshot"
 bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" "$PYTHON_BIN" 2>&1 | tee -a "$LOG_FILE"
 
 export PYTHONPATH="$REPO_ROOT/python"
@@ -30,6 +43,7 @@ mkdir -p "$OUT_DIR"
 log "Export dir: $OUT_DIR"
 
 log "Running export smoke test (fresh tiny model + int8/int4 exports)..."
+CURRENT_STEP="export"
 "$PYTHON_BIN" -m train.export \
   --output-dir "$OUT_DIR" \
   --quantize both \
@@ -41,6 +55,7 @@ log "Running export smoke test (fresh tiny model + int8/int4 exports)..."
   2>&1 | tee -a "$LOG_FILE"
 
 log "Verifying expected artifacts exist..."
+CURRENT_STEP="verify_artifacts"
 test -f "$OUT_DIR/model.safetensors"
 test -f "$OUT_DIR/config.json"
 test -f "$OUT_DIR/tokenizer.json"

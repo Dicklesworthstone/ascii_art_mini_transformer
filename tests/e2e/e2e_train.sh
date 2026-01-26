@@ -6,7 +6,19 @@ TS="$(date +%Y%m%d_%H%M%S)"
 TMP_DIR="$(mktemp -d -t ascii_e2e_train_${TS}_XXXXXX)"
 LOG_FILE="$TMP_DIR/e2e_train_${TS}.log"
 
-log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE" >/dev/null; }
+log() { echo "[$(date +%H:%M:%S)] $*" | tee -a "$LOG_FILE"; }
+
+CURRENT_STEP="setup"
+SECONDS=0
+on_exit() {
+  status=$?
+  if [[ $status -ne 0 ]]; then
+    echo "E2E train: FAILED (step=$CURRENT_STEP status=$status elapsed=${SECONDS}s)" >&2
+    echo "Artifacts kept under: $TMP_DIR" >&2
+    echo "Log file: $LOG_FILE" >&2
+  fi
+}
+trap on_exit EXIT
 
 PYTHON_BIN="${PYTHON_BIN:-}"
 if [[ -z "$PYTHON_BIN" ]]; then
@@ -22,6 +34,7 @@ log "Temp: $TMP_DIR"
 log "Log:  $LOG_FILE"
 log "Python: $PYTHON_BIN"
 
+CURRENT_STEP="env_snapshot"
 bash "$REPO_ROOT/tests/e2e/env_snapshot.sh" "$REPO_ROOT" "$PYTHON_BIN" 2>&1 | tee -a "$LOG_FILE"
 
 export PYTHONPATH="$REPO_ROOT/python"
@@ -31,6 +44,7 @@ CKPT_DIR="$TMP_DIR/checkpoints"
 OUT_DIR="$TMP_DIR/exported"
 
 log "Creating small training DB..."
+CURRENT_STEP="create_db"
 "$PYTHON_BIN" - <<PY | tee -a "$LOG_FILE"
 from __future__ import annotations
 
@@ -69,6 +83,7 @@ conn.close()
 PY
 
 log "Running training smoke test (CPU, tiny model, few iters)..."
+CURRENT_STEP="train"
 "$PYTHON_BIN" -m train.train \
   --db-path "$DB_PATH" \
   --checkpoint-dir "$CKPT_DIR" \
@@ -90,9 +105,11 @@ log "Running training smoke test (CPU, tiny model, few iters)..."
   2>&1 | tee -a "$LOG_FILE"
 
 log "Verifying expected checkpoint artifacts exist..."
+CURRENT_STEP="verify_checkpoint"
 test -f "$CKPT_DIR/final.pt"
 
 log "Exporting from checkpoint (smoke test)..."
+CURRENT_STEP="export"
 "$PYTHON_BIN" -m train.export \
   --checkpoint "$CKPT_DIR/final.pt" \
   --output-dir "$OUT_DIR" \
@@ -101,11 +118,13 @@ log "Exporting from checkpoint (smoke test)..."
   2>&1 | tee -a "$LOG_FILE"
 
 log "Verifying expected export artifacts exist..."
+CURRENT_STEP="verify_export"
 test -f "$OUT_DIR/model.safetensors"
 test -f "$OUT_DIR/config.json"
 test -f "$OUT_DIR/tokenizer.json"
 
 log "Verifying export config matches training hyperparameters..."
+CURRENT_STEP="verify_export_config"
 "$PYTHON_BIN" - <<PY | tee -a "$LOG_FILE"
 from __future__ import annotations
 
