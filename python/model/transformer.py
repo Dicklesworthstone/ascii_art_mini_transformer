@@ -101,6 +101,7 @@ class CausalSelfAttention(nn.Module):
         self.n_embd = config.n_embd
         self.head_dim = config.head_dim
         self.dropout = config.dropout
+        self._cached_causal_mask: torch.Tensor | None = None
 
         # Key, query, value projections for all heads combined
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=False)
@@ -112,14 +113,16 @@ class CausalSelfAttention(nn.Module):
         self.attn_dropout = nn.Dropout(config.dropout)
         self.resid_dropout = nn.Dropout(config.dropout)
 
-        # Causal mask
-        self.mask: torch.Tensor
-        self.register_buffer(
-            "mask",
-            torch.tril(torch.ones(config.block_size, config.block_size)).view(
-                1, 1, config.block_size, config.block_size
-            ),
-        )
+    def _get_causal_mask(self, seq_len: int, device: torch.device) -> torch.Tensor:
+        """Lazily build and cache a causal mask for fallback attention paths."""
+        mask = self._cached_causal_mask
+        if mask is None or mask.device != device or mask.size(-1) < seq_len:
+            m = torch.tril(
+                torch.ones((seq_len, seq_len), device=device, dtype=torch.bool)
+            )
+            mask = m.view(1, 1, seq_len, seq_len)
+            self._cached_causal_mask = mask
+        return mask[:, :, :seq_len, :seq_len]
 
     def forward(
         self,
@@ -172,7 +175,7 @@ class CausalSelfAttention(nn.Module):
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
 
         # Apply causal mask
-        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
+        att = att.masked_fill(~self._get_causal_mask(T, att.device), float("-inf"))
 
         # Apply padding mask if provided
         if attention_mask is not None:

@@ -548,6 +548,12 @@ def export_from_checkpoint(
 
     # Create and load model
     model = create_model(model_config)
+    # Ignore any legacy attention mask buffers; they are deterministic and rebuilt at runtime.
+    if model_state_dict is None:  # pragma: no cover
+        raise TypeError("Missing model state dict")
+    model_state_dict = {
+        k: v for k, v in model_state_dict.items() if not k.endswith(".mask")
+    }
     model.load_state_dict(model_state_dict)
     model.eval()
 

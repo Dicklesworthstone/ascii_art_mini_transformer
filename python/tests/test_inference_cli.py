@@ -36,9 +36,12 @@ def test_inference_cli_loads_training_checkpoint(tmp_path: Path) -> None:
     model = create_model(config)
 
     ckpt_path = tmp_path / "ckpt.pt"
+    # Include a legacy attention mask key to ensure the loader ignores deterministic buffers.
+    state_dict = dict(model.state_dict())
+    state_dict["blocks.0.attn.mask"] = torch.ones(1, 1, 4, 4)
     torch.save(
         {
-            "model": model.state_dict(),
+            "model": state_dict,
             "model_config": asdict(config),
         },
         ckpt_path,

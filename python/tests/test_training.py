@@ -936,6 +936,9 @@ class TestCheckpointing:
         assert checkpoint["best_val_loss"] == pytest.approx(0.5)
         assert isinstance(checkpoint["model"], dict)
         assert isinstance(checkpoint["optimizer"], dict)
+        assert not any(k.endswith(".mask") for k in checkpoint["model"]), (
+            "Causal masks should not be stored in checkpoints (they bloat file size)"
+        )
 
         model_cfg = checkpoint["model_config"]
         assert isinstance(model_cfg, dict)

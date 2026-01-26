@@ -39,8 +39,8 @@ def test_export_model_excludes_mask_and_breaks_tied_weights(tmp_path: Path) -> N
     model, tokenizer = _make_tiny_model()
 
     state_dict = model.state_dict()
-    assert any(k.endswith(".mask") for k in state_dict), (
-        "Expected attention mask buffer"
+    assert not any(k.endswith(".mask") for k in state_dict), (
+        "Causal masks should not be persisted in state_dict (they bloat checkpoints)"
     )
     assert (
         state_dict["token_embedding.weight"].data_ptr()
@@ -48,11 +48,7 @@ def test_export_model_excludes_mask_and_breaks_tied_weights(tmp_path: Path) -> N
     ), "Expected tied weights to share storage"
 
     # Prove why export_model clones lm_head: safetensors refuses shared-storage dicts.
-    raw_export = {
-        k: v.detach().to(device="cpu")
-        for k, v in state_dict.items()
-        if not k.endswith(".mask")
-    }
+    raw_export = {k: v.detach().to(device="cpu") for k, v in state_dict.items()}
     with pytest.raises(Exception):
         save_file(raw_export, tmp_path / "raw.safetensors")
 

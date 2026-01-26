@@ -235,7 +235,13 @@ def load_checkpoint(
     Returns:
         Tuple of (iter_num, best_val_loss)
     """
-    checkpoint = torch.load(str(path), weights_only=True, map_location="cpu")
+    try:
+        checkpoint = torch.load(str(path), weights_only=True, map_location="cpu")
+    except TypeError as exc:
+        # Older PyTorch versions may not support the `weights_only` kwarg.
+        if "weights_only" not in str(exc):
+            raise
+        checkpoint = torch.load(str(path), map_location="cpu")
     if not isinstance(checkpoint, dict):  # pragma: no cover
         raise TypeError(f"Unsupported checkpoint format: {type(checkpoint)}")
 
@@ -243,6 +249,8 @@ def load_checkpoint(
     if not isinstance(model_state, dict):  # pragma: no cover
         raise TypeError(f"Unsupported model state format: {type(model_state)}")
 
+    # Ignore any legacy attention mask buffers; they are deterministic and rebuilt at runtime.
+    model_state = {k: v for k, v in model_state.items() if not k.endswith(".mask")}
     model.load_state_dict(model_state)
 
     if optimizer is not None:

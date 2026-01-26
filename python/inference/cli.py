@@ -29,7 +29,13 @@ def _load_torch_checkpoint(
             "Do not use this on untrusted checkpoints.",
             file=sys.stderr,
         )
-        obj = torch.load(str(path), map_location="cpu", weights_only=False)
+        try:
+            obj = torch.load(str(path), map_location="cpu", weights_only=False)
+        except TypeError as type_error:
+            # Older PyTorch versions may not support the `weights_only` kwarg.
+            if "weights_only" not in str(type_error):
+                raise
+            obj = torch.load(str(path), map_location="cpu")
 
     if not isinstance(obj, dict):
         raise TypeError(
@@ -127,6 +133,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         state_dict, cfg = _load_torch_checkpoint(
             args.checkpoint, unsafe_load=args.unsafe_load
         )
+        # Ignore deterministic attention mask buffers from legacy checkpoints.
+        state_dict = {k: v for k, v in state_dict.items() if not k.endswith(".mask")}
     else:
         assert args.model is not None
         state_dict = _load_float_safetensors(args.model)
