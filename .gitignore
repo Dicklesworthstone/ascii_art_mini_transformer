@@ -9,6 +9,13 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 
+# Coverage artifacts
+.coverage
+.coverage.*
+coverage.xml
+coverage_html/
+htmlcov/
+
 # Rust build artifacts
 target/
 

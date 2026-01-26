@@ -14,5 +14,7 @@ rapidfuzz  # For near-duplicate detection
 
 # Dev tooling (per AGENTS.md)
 pytest
+pytest-cov
+coverage
 ruff
 mypy

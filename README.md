@@ -112,6 +112,31 @@ ASCII_GEN_EXPORT_DIR=models/exported cargo build --release --manifest-path rust/
 
 Issue tracking is via `br` / `bv` (beads_rust). See `AGENTS.md` for workflow.
 
+## Python Tests + Coverage
+
+Run tests:
+
+```bash
+pytest python/tests/ -v
+```
+
+Run tests with coverage report (terminal output):
+
+```bash
+pytest python/tests/ --cov=python --cov-report=term-missing
+```
+
+Generate HTML coverage report (written under a temp dir and kept; no auto-delete per project policy):
+
+```bash
+tests/coverage/run_coverage.sh --html
+```
+Optionally, also emit an XML report (in the same artifacts dir):
+
+```bash
+tests/coverage/run_coverage.sh --xml
+```
+
 ## E2E tests
 
 - Full suite: `tests/e2e/e2e_full.sh`
@@ -120,3 +145,8 @@ Issue tracking is via `br` / `bv` (beads_rust). See `AGENTS.md` for workflow.
 - Python export: `tests/e2e/e2e_python_export.sh`
 - Rust-only (includes Python↔Rust cross-validation): `tests/e2e/e2e_rust.sh`
 - Embedded weights smoke: `tests/e2e/e2e_embedded.sh`
+- Lint/typecheck gates: `tests/e2e/e2e_lint.sh`
+
+The lint script runs:
+- Python: `ruff check`, `ruff format --check`, `mypy --strict`
+- Rust: `cargo fmt --check`, `cargo clippy --all-targets`
