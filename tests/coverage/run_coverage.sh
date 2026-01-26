@@ -59,7 +59,7 @@ echo ""
 
 # Run pytest with coverage
 # Use PYTHONPATH to ensure python/ modules are importable
-PYTHONPATH="${PYTHONPATH:-}:$REPO_ROOT" pytest python/tests/ \
+PYTHONPATH="${PYTHONPATH:-}:$REPO_ROOT/python:$REPO_ROOT" pytest python/tests/ \
     --cov=python \
     "${COV_REPORT_ARGS[@]}" \
     -v
