@@ -24,7 +24,7 @@ T = TypeVar("T")
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from data.db import connect, initialize, upsert_ascii_art  # noqa: E402
+from data.db import UpsertResult, connect, initialize, upsert_ascii_art  # noqa: E402
 
 # Configure logging
 logging.basicConfig(
@@ -542,7 +542,7 @@ def generate_texts_for_font(
     include_letters: bool,
     include_digits: bool,
     words: list[str],
-) -> Iterator[tuple[str, str, dict]]:
+) -> Iterator[tuple[str, str, dict[str, str]]]:
     """
     Generate all text variations for a font.
 
@@ -669,12 +669,12 @@ def generate_dataset(
                 # Insert with upsert (handles dedup and computes metadata)
                 # Use retry logic to handle database locks from concurrent processes
                 # Capture loop variables via default arguments to avoid closure issues.
-                def do_upsert(
-                    rt=raw_text,
-                    fn=font_name,
-                    desc=description,
-                    em=extra_meta,
-                ):
+                rt = raw_text
+                fn = font_name
+                desc = description
+                em = extra_meta
+
+                def do_upsert() -> UpsertResult | None:
                     return upsert_ascii_art(
                         conn,
                         raw_text=rt,
@@ -745,7 +745,7 @@ def generate_dataset(
     return stats
 
 
-def main():
+def main() -> int:
     """Main entry point."""
     if which("figlet") is None:
         logger.error("Missing dependency: `figlet` binary not found in PATH.")

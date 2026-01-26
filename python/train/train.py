@@ -17,7 +17,7 @@ import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional, cast
 
 import torch
 import torch.nn as nn
@@ -31,6 +31,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from model.transformer import AsciiGPT, AsciiGPTConfig, create_model
 from model.tokenizer import get_tokenizer
 from train.dataset import create_dataloaders, DataConfig
+
+Batch = dict[str, torch.Tensor]
 
 
 @dataclass
@@ -84,7 +86,7 @@ class TrainingConfig:
     export_dir: str = "models/exported"
     export_dtype: str = "float32"  # 'float32', 'float16', or 'bfloat16'
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         """Validate and setup configuration."""
         # Create checkpoint directory
         Path(self.checkpoint_dir).mkdir(parents=True, exist_ok=True)
@@ -144,7 +146,7 @@ def get_lr(iter_num: int, config: TrainingConfig) -> float:
     return config.min_lr + coeff * (config.learning_rate - config.min_lr)
 
 
-def _config_to_dict(config: TrainingConfig) -> dict:
+def _config_to_dict(config: TrainingConfig) -> dict[str, object]:
     """Convert TrainingConfig to a plain dict for serialization."""
     return {
         "db_path": config.db_path,
@@ -165,7 +167,9 @@ def _config_to_dict(config: TrainingConfig) -> dict:
     }
 
 
-def _model_config_to_dict(model_config) -> dict | None:
+def _model_config_to_dict(
+    model_config: AsciiGPTConfig | None,
+) -> dict[str, object] | None:
     """Convert AsciiGPTConfig to a plain dict for serialization."""
     if model_config is None:
         return None
@@ -201,7 +205,7 @@ def save_checkpoint(
         path: Path to save checkpoint
     """
     # Save configs as plain dicts to avoid pickle module path issues
-    model_config = model.config if hasattr(model, "config") else None
+    model_config = cast(AsciiGPTConfig | None, getattr(model, "config", None))
 
     checkpoint = {
         "model": model.state_dict(),
@@ -276,7 +280,7 @@ def load_checkpoint(
 @torch.no_grad()
 def evaluate(
     model: nn.Module,
-    val_loader: DataLoader,
+    val_loader: DataLoader[Batch],
     config: TrainingConfig,
     max_iters: Optional[int] = None,
 ) -> float:
@@ -310,7 +314,7 @@ def evaluate(
 
         # Match training behavior: only autocast on CUDA when using a reduced-precision dtype.
         if use_amp:
-            with torch.amp.autocast(device_type=device_type, dtype=dtype):
+            with torch.autocast(device_type=device_type, dtype=dtype):
                 _, loss = model(input_ids, labels=labels)
         else:
             _, loss = model(input_ids, labels=labels)
@@ -342,8 +346,8 @@ def _get_device_type(device: str) -> str:
 def train(
     config: TrainingConfig,
     model: Optional[AsciiGPT] = None,
-    train_loader: Optional[DataLoader] = None,
-    val_loader: Optional[DataLoader] = None,
+    train_loader: Optional[DataLoader[Batch]] = None,
+    val_loader: Optional[DataLoader[Batch]] = None,
 ) -> AsciiGPT:
     """
     Main training loop.
@@ -364,6 +368,7 @@ def train(
     if model is None:
         model_config = config.get_model_config()
         model = create_model(model_config)
+    assert model is not None
 
     # Move to device
     model = model.to(config.device)
@@ -390,6 +395,8 @@ def train(
                 "Train loader has 0 batches (likely batch_size too large for dataset). "
                 "Reduce batch_size and/or val_split."
             )
+    assert train_loader is not None
+    assert val_loader is not None
 
     # Create optimizer
     optimizer = torch.optim.AdamW(
@@ -402,7 +409,7 @@ def train(
     # Optional: compile model for speed
     if config.compile_model and hasattr(torch, "compile"):
         print("Compiling model with torch.compile...")
-        model = torch.compile(model)
+        model = cast(AsciiGPT, torch.compile(model))
 
     # Resume from checkpoint if specified
     iter_num = 0
@@ -428,7 +435,7 @@ def train(
     running_loss = 0.0
 
     # Create infinite iterator over training data
-    def infinite_loader():
+    def infinite_loader() -> Iterator[Batch]:
         while True:
             for batch in train_loader:
                 yield batch
@@ -459,7 +466,7 @@ def train(
 
             # Forward pass with mixed precision
             if use_amp:
-                with torch.amp.autocast(device_type=device_type, dtype=dtype):
+                with torch.autocast(device_type=device_type, dtype=dtype):
                     _, loss = model(input_ids, labels=labels)
                     loss = loss / config.gradient_accumulation_steps
             else:

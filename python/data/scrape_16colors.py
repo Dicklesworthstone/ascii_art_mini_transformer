@@ -25,10 +25,10 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urljoin, urlparse
 
-import requests
+import requests  # type: ignore[import-untyped]
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -145,9 +145,9 @@ def strip_sauce(data: bytes) -> tuple[bytes, Optional[SauceMetadata]]:
     return content, meta
 
 
-def _soup(html: str):
+def _soup(html: str) -> Any:
     try:
-        from bs4 import BeautifulSoup  # type: ignore[import-not-found]
+        from bs4 import BeautifulSoup
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise RuntimeError(
             "beautifulsoup4 is required for HTML parsing; install from python/requirements.txt"
@@ -173,13 +173,14 @@ def _rate_limit(delay_seconds: float, jitter_seconds: float) -> None:
 def _http_get_bytes(session: requests.Session, url: str) -> bytes:
     resp = session.get(url, timeout=60)
     resp.raise_for_status()
-    return resp.content
+    return cast(bytes, resp.content)
 
 
 def _http_get_text_latin1(session: requests.Session, url: str) -> str:
     resp = session.get(url, timeout=60)
     resp.raise_for_status()
-    return resp.content.decode("latin-1", errors="replace")
+    content = cast(bytes, resp.content)
+    return content.decode("latin-1", errors="replace")
 
 
 def _extract_year_links(html: str, base_url: str) -> list[str]:

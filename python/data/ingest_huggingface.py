@@ -28,7 +28,7 @@ from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 from tqdm import tqdm
 
-from db import connect, initialize, insert_ascii_art
+from data.db import connect, initialize, insert_ascii_art
 
 # Configure logging
 logging.basicConfig(
@@ -84,14 +84,16 @@ class IngestionStats:
 class ProgressTracker:
     """Track and persist ingestion progress for resumability."""
 
-    def __init__(self, progress_file: str = "ingestion_progress.json"):
+    def __init__(self, progress_file: str = "ingestion_progress.json") -> None:
         self.progress_file = Path(progress_file)
-        self.state = self._load()
+        self.state: dict[str, Any] = self._load()
 
-    def _load(self) -> dict:
+    def _load(self) -> dict[str, Any]:
         if self.progress_file.exists():
             with open(self.progress_file) as f:
-                return json.load(f)
+                loaded = json.load(f)
+            if isinstance(loaded, dict):
+                return loaded
         return {"completed_datasets": [], "last_row": {}, "stats": {}}
 
     def save(self) -> None:
@@ -118,7 +120,11 @@ class ProgressTracker:
         self.save()
 
     def get_start_row(self, dataset_name: str) -> int:
-        return self.state["last_row"].get(dataset_name, 0)
+        raw = self.state.get("last_row", {}).get(dataset_name, 0)
+        try:
+            return int(raw)
+        except (TypeError, ValueError):
+            return 0
 
     def reset_dataset(self, dataset_name: str, *, start_row: int = 0) -> None:
         """Clear completion/progress for a dataset so it can be re-processed."""
@@ -936,7 +942,7 @@ def ingest_all_datasets(
     return all_stats
 
 
-def main():
+def main() -> None:
     """Main entry point for HuggingFace ingestion."""
     import argparse
 

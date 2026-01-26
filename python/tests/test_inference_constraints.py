@@ -8,7 +8,7 @@ import torch
 # Add parent to path for imports before importing project modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from inference.constraints import ConstrainedDecoder  # noqa: E402
+from inference.constraints import ConstrainedDecoder, compute_row_col_from_tokens  # noqa: E402
 from inference.generate import generate_greedy  # noqa: E402
 from model.tokenizer import get_tokenizer  # noqa: E402
 
@@ -65,6 +65,19 @@ def test_forced_token_id_prioritizes_eos_over_width() -> None:
     assert dec.forced_token_id(tok) == tok.eos_token_id
 
 
+def test_forced_token_id_eos_when_height_exceeded() -> None:
+    tok = get_tokenizer()
+    dec = ConstrainedDecoder(max_width=40, max_height=2, max_tokens=256)
+    dec.current_row = 2
+    assert dec.forced_token_id(tok) == tok.eos_token_id
+
+
+def test_forced_token_id_none_when_width_disabled() -> None:
+    tok = get_tokenizer()
+    dec = ConstrainedDecoder(max_width=0, max_height=2, max_tokens=256)
+    assert dec.forced_token_id(tok) is None
+
+
 def test_forced_token_id_newline_when_width_exceeded_not_last_row() -> None:
     tok = get_tokenizer()
     dec = ConstrainedDecoder(max_width=3, max_height=2, max_tokens=256)
@@ -81,6 +94,19 @@ def test_forced_token_id_eos_when_width_exceeded_on_last_row() -> None:
     assert dec.forced_token_id(tok) == tok.eos_token_id
 
 
+def test_apply_constraints_returns_early_without_special_token_predicate() -> None:
+    class _Tokenizer:
+        newline_token_id = 1
+        eos_token_id = 2
+
+    tok = _Tokenizer()
+    dec = ConstrainedDecoder(max_width=80, max_height=80, max_tokens=256)
+    dec.total_tokens = 1
+    logits = torch.zeros(8, dtype=torch.float32)
+    masked = dec.apply_constraints_to_logits(logits, tok)
+    assert masked is logits
+
+
 def test_apply_constraints_masks_special_tokens_except_newline_and_eos() -> None:
     tok = get_tokenizer()
     dec = ConstrainedDecoder(max_width=40, max_height=20, max_tokens=256)
@@ -95,6 +121,15 @@ def test_apply_constraints_masks_special_tokens_except_newline_and_eos() -> None
             continue
         if tok.is_special_token(token_id):
             assert not torch.isfinite(masked[token_id]).item()
+
+
+def test_compute_row_col_from_tokens_matches_update_semantics() -> None:
+    tok = get_tokenizer()
+    a_id = tok.encode("A")[0]
+    b_id = tok.encode("B")[0]
+    token_ids = [a_id, tok.newline_token_id, b_id, b_id, tok.newline_token_id]
+    row, col = compute_row_col_from_tokens(token_ids, tok)
+    assert (row, col) == (2, 0)
 
 
 def test_apply_constraints_forces_newline_when_only_token_allowed() -> None:

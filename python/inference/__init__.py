@@ -12,7 +12,7 @@ require torch will raise a clear error if torch is not installed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NoReturn
 
 from .constraints import ConstrainedDecoder
 from .sampler import Sampler, TopKSampler, TopPSampler
@@ -38,17 +38,17 @@ except ModuleNotFoundError as exc:  # pragma: no cover
 
     torch_exc = exc
 
-    def _torch_required(*_args, **_kwargs):
+    def _torch_required(*_args: object, **_kwargs: object) -> NoReturn:
         raise ModuleNotFoundError(
             "torch is required for python.inference.generate* helpers. "
             "Install it (see python/requirements.txt) or import lower-level "
             "helpers that don't require torch."
         ) from torch_exc
 
-    generate = _torch_required  # type: ignore[assignment]
-    generate_greedy = _torch_required  # type: ignore[assignment]
-    generate_sample = _torch_required  # type: ignore[assignment]
-    generate_golden_tests = _torch_required  # type: ignore[assignment]
+    generate = _torch_required
+    generate_greedy = _torch_required
+    generate_sample = _torch_required
+    generate_golden_tests = _torch_required
 
 
 __all__ = [

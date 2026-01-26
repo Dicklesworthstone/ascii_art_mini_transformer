@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Optional, Protocol, Sequence, cast
+from typing import TYPE_CHECKING, Callable, Optional, Protocol, Sequence, cast
+
+if TYPE_CHECKING:  # pragma: no cover
+    import torch
 
 
 class TokenizerLike(Protocol):
@@ -65,7 +68,9 @@ class ConstrainedDecoder:
             return None
         return (forced,)
 
-    def apply_constraints_to_logits(self, logits, tokenizer: TokenizerLike):
+    def apply_constraints_to_logits(
+        self, logits: "torch.Tensor", tokenizer: TokenizerLike
+    ) -> "torch.Tensor":
         """
         Apply constraints to a 1D logits tensor by masking disallowed tokens to -inf.
 

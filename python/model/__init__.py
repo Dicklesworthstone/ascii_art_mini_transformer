@@ -30,7 +30,7 @@ try:
         compute_2d_positions_simple,
         create_positional_encoding,
     )
-except ModuleNotFoundError as exc:
+except ModuleNotFoundError as exc:  # pragma: no cover
     if exc.name != "torch":
         raise
 else:
@@ -56,7 +56,7 @@ try:
         get_medium_config,
         get_large_config,
     )
-except ModuleNotFoundError as exc:
+except ModuleNotFoundError as exc:  # pragma: no cover
     if exc.name != "torch":
         raise
 else:

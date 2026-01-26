@@ -26,10 +26,10 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import urljoin, urlparse
 
-import requests
+import requests  # type: ignore[import-untyped]
 from bs4 import BeautifulSoup
 
 
@@ -115,14 +115,14 @@ def _rate_limit(delay_seconds: float, jitter_seconds: float) -> None:
 def _http_get(session: requests.Session, url: str) -> str:
     resp = session.get(url, timeout=30)
     resp.raise_for_status()
-    return resp.text
+    return cast(str, resp.text)
 
 
 def _extract_gallery_links(soup: BeautifulSoup, base_url: str) -> list[str]:
     links: list[str] = []
     for anchor in soup.select("a.card-gallery[href]"):
         href = anchor.get("href")
-        if not href:
+        if not isinstance(href, str) or not href:
             continue
         full = urljoin(base_url, href)
         if _same_site(base_url, full):

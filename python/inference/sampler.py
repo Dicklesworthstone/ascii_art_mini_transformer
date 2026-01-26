@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
+
+if TYPE_CHECKING:  # pragma: no cover
+    import torch
 
 
 class Sampler(Protocol):
-    def sample(self, logits) -> int: ...
+    def sample(self, logits: "torch.Tensor") -> int: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,9 +22,9 @@ class TopKSampler:
     k: int
     temperature: float = 1.0
 
-    def sample(self, logits) -> int:
+    def sample(self, logits: "torch.Tensor") -> int:
         try:
-            import torch  # type: ignore
+            import torch
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise ModuleNotFoundError("torch is required for sampling") from exc
 
@@ -52,9 +55,9 @@ class TopPSampler:
     p: float
     temperature: float = 1.0
 
-    def sample(self, logits) -> int:
+    def sample(self, logits: "torch.Tensor") -> int:
         try:
-            import torch  # type: ignore
+            import torch
         except ModuleNotFoundError as exc:  # pragma: no cover
             raise ModuleNotFoundError("torch is required for sampling") from exc
 
@@ -90,7 +93,7 @@ class TopPSampler:
 
 
 def sample_next_token(
-    logits,
+    logits: "torch.Tensor",
     *,
     temperature: float,
     top_k: int = 0,
@@ -100,7 +103,7 @@ def sample_next_token(
     Convenience sampling helper supporting both top-k and top-p.
     """
     try:
-        import torch  # type: ignore
+        import torch
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise ModuleNotFoundError("torch is required for sampling") from exc
 

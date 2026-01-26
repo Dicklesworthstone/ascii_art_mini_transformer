@@ -38,6 +38,8 @@ from train.augmentation import (
     validate_augmented_art,
 )
 
+Batch = dict[str, torch.Tensor]
+
 
 @dataclass
 class DataConfig:
@@ -65,7 +67,7 @@ def _compute_width_height(raw_text: str) -> tuple[int, int]:
     return width, height
 
 
-class AsciiArtDataset(Dataset):
+class AsciiArtDataset(Dataset[Batch]):
     """
     PyTorch Dataset for ASCII art training data.
 
@@ -84,7 +86,7 @@ class AsciiArtDataset(Dataset):
         db_path: str | Path,
         tokenizer: Optional[AsciiTokenizer] = None,
         config: Optional[DataConfig] = None,
-    ):
+    ) -> None:
         self.db_path = str(db_path)
         self.tokenizer = tokenizer or get_tokenizer()
         self.config = config or DataConfig(db_path=self.db_path)
@@ -99,7 +101,7 @@ class AsciiArtDataset(Dataset):
         # Load valid IDs from database
         self.ids = self._load_valid_ids()
 
-    def __getstate__(self) -> dict:
+    def __getstate__(self) -> dict[str, object]:
         # sqlite3.Connection is not pickleable. Ensure DataLoader worker processes can
         # serialize the dataset even if it was used before for debugging.
         state = self.__dict__.copy()
@@ -286,7 +288,7 @@ class AsciiArtDataset(Dataset):
             return "art"
 
 
-class AugmentedAsciiArtDataset(Dataset):
+class AugmentedAsciiArtDataset(Dataset[Batch]):
     """
     Wrapper dataset that applies data augmentation to training examples.
 
@@ -305,7 +307,7 @@ class AugmentedAsciiArtDataset(Dataset):
         augmentation_config: AugmentationConfig | None = None,
         augment_prob: float = 0.5,
         rng: RandomLike | None = None,
-    ):
+    ) -> None:
         self.base_dataset = base_dataset
         self.augment_prob = augment_prob
         self.augmentation_config = augmentation_config or AugmentationConfig()
@@ -452,7 +454,7 @@ def create_dataloaders(
     pin_memory: bool = False,
     augment_train: bool = False,
     augment_prob: float = 0.5,
-) -> tuple[DataLoader, DataLoader]:
+) -> tuple[DataLoader[Batch], DataLoader[Batch]]:
     """
     Create train and validation DataLoaders.
 
@@ -559,7 +561,7 @@ def create_single_loader(
     num_workers: int = 4,
     config: Optional[DataConfig] = None,
     pin_memory: bool = False,
-) -> DataLoader:
+) -> DataLoader[Batch]:
     """
     Create a single DataLoader (for inference/debugging).
 
@@ -578,9 +580,12 @@ def create_single_loader(
     tokenizer = tokenizer or get_tokenizer()
     config = config or DataConfig(db_path=str(db_path))
 
-    dataset: Dataset = AsciiArtDataset(db_path, tokenizer, config)
+    base_dataset = AsciiArtDataset(db_path, tokenizer, config)
+    dataset: Dataset[Batch] = base_dataset
     if config.augment:
-        dataset = AugmentedAsciiArtDataset(dataset, augment_prob=config.augment_prob)
+        dataset = AugmentedAsciiArtDataset(
+            base_dataset, augment_prob=config.augment_prob
+        )
     pad_id = tokenizer.pad_token_id
 
     return DataLoader(

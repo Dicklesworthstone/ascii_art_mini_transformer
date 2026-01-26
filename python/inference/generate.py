@@ -3,22 +3,37 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Optional, Protocol, Sequence
 
 from .constraints import ConstrainedDecoder, TokenizerLike
 from .sampler import sample_next_token
+
+if TYPE_CHECKING:  # pragma: no cover
+    import torch
 
 
 class ModelLike(Protocol):
     def eval(self) -> Any: ...
 
-    def __call__(self, input_ids): ...
+    def parameters(self, recurse: bool = True) -> Iterable["torch.Tensor"]: ...
+
+    def __call__(self, input_ids: "torch.Tensor") -> tuple["torch.Tensor", Any]: ...
 
     @property
-    def config(self): ...
+    def config(self) -> Any: ...
 
 
-def _infer_device(model) -> str:
+class TokenizerForGenerate(TokenizerLike, Protocol):
+    def encode_inference_prompt(
+        self, prompt: str, *, width: int, height: int, style: str
+    ) -> Sequence[int]: ...
+
+    def decode(
+        self, token_ids: Sequence[int], skip_special_tokens: bool = True
+    ) -> str: ...
+
+
+def _infer_device(model: ModelLike) -> str:
     # Best-effort device inference without importing torch at module import time.
     try:
         params = list(model.parameters())
@@ -31,7 +46,7 @@ def _infer_device(model) -> str:
 
 def generate(
     model: ModelLike,
-    tokenizer: TokenizerLike,
+    tokenizer: TokenizerForGenerate,
     prompt: str,
     *,
     width: int = 80,
@@ -50,7 +65,7 @@ def generate(
     This runs an explicit decoding loop so we can apply constraints per-step.
     """
     try:
-        import torch  # type: ignore
+        import torch
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise ModuleNotFoundError(
             "torch is required for python inference generation. "
@@ -65,12 +80,9 @@ def generate(
     dev = device or _infer_device(model)
 
     # Build prompt tokens: <BOS> [constraints] <STYLE_*> <prompt> <SEP>
-    if hasattr(tokenizer, "encode_inference_prompt"):
-        input_token_ids: Sequence[int] = tokenizer.encode_inference_prompt(
-            prompt, width=width, height=height, style=style
-        )
-    else:  # pragma: no cover
-        raise TypeError("tokenizer must support encode_inference_prompt()")
+    input_token_ids: Sequence[int] = tokenizer.encode_inference_prompt(
+        prompt, width=width, height=height, style=style
+    )
 
     input_ids = torch.tensor([list(input_token_ids)], dtype=torch.long, device=dev)
 
@@ -111,14 +123,12 @@ def generate(
         if decoder.should_stop(tokenizer):
             break
 
-    if hasattr(tokenizer, "decode"):
-        return tokenizer.decode(generated)
-    raise TypeError("tokenizer must support decode()")  # pragma: no cover
+    return tokenizer.decode(generated)
 
 
 def generate_greedy(
     model: ModelLike,
-    tokenizer: TokenizerLike,
+    tokenizer: TokenizerForGenerate,
     prompt: str,
     *,
     width: int = 80,
@@ -146,7 +156,7 @@ def generate_greedy(
 
 def generate_sample(
     model: ModelLike,
-    tokenizer: TokenizerLike,
+    tokenizer: TokenizerForGenerate,
     prompt: str,
     *,
     width: int = 80,
@@ -186,7 +196,7 @@ class GoldenCase:
 
 def generate_golden_tests(
     model: ModelLike,
-    tokenizer: TokenizerLike,
+    tokenizer: TokenizerForGenerate,
     output_dir: Path,
     *,
     cases: Optional[Sequence[GoldenCase]] = None,
@@ -196,7 +206,7 @@ def generate_golden_tests(
     Emit small JSON "golden" artifacts for later cross-validation (Python vs Rust).
     """
     try:
-        import torch  # type: ignore
+        import torch
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise ModuleNotFoundError(
             "torch is required for golden test generation"
@@ -218,12 +228,9 @@ def generate_golden_tests(
     for i, case in enumerate(cases):
         torch.manual_seed(int(case.seed))
 
-        if hasattr(tokenizer, "encode_inference_prompt"):
-            input_token_ids: Sequence[int] = tokenizer.encode_inference_prompt(
-                case.prompt, width=case.width, height=case.height, style=case.style
-            )
-        else:  # pragma: no cover
-            raise TypeError("tokenizer must support encode_inference_prompt()")
+        input_token_ids: Sequence[int] = tokenizer.encode_inference_prompt(
+            case.prompt, width=case.width, height=case.height, style=case.style
+        )
 
         input_ids = torch.tensor([list(input_token_ids)], dtype=torch.long, device=dev)
         with torch.no_grad():

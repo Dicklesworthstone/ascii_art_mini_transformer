@@ -11,7 +11,7 @@ def _load_torch_checkpoint(
     path: Path, *, unsafe_load: bool
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
     try:
-        import torch  # type: ignore
+        import torch
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise ModuleNotFoundError("torch is required to load checkpoints") from exc
 
@@ -52,7 +52,7 @@ def _load_torch_checkpoint(
 
 def _load_float_safetensors(weights_path: Path) -> dict[str, Any]:
     try:
-        from safetensors.torch import load_file  # type: ignore
+        from safetensors.torch import load_file
     except ModuleNotFoundError as exc:  # pragma: no cover
         raise ModuleNotFoundError(
             "safetensors is required to load .safetensors weights"
@@ -68,7 +68,7 @@ def _load_config_json(path: Path) -> dict[str, Any]:
     return obj
 
 
-def _filter_model_config(cfg: dict[str, Any], config_type) -> dict[str, Any]:
+def _filter_model_config(cfg: dict[str, Any], config_type: type[Any]) -> dict[str, Any]:
     # Filter unknown keys (e.g. export_dtype) before passing into AsciiGPTConfig.
     from dataclasses import fields
 
@@ -117,11 +117,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         help="Allow legacy pickle checkpoint loading when using --checkpoint (UNSAFE for untrusted files)",
     )
     args = parser.parse_args(argv)
-
-    try:
-        import torch  # type: ignore
-    except ModuleNotFoundError as exc:  # pragma: no cover
-        raise ModuleNotFoundError("torch is required to run inference") from exc
 
     from model.tokenizer import get_tokenizer  # noqa: E402
     from model.transformer import AsciiGPTConfig, create_model  # noqa: E402
@@ -176,7 +171,6 @@ def main(argv: Optional[list[str]] = None) -> int:
         device="cpu",
     )
 
-    torch.set_printoptions(profile="full")
     print(art)
     return 0
 

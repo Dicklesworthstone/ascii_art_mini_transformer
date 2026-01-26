@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import torch
 from safetensors.torch import load_file, save_file
@@ -300,7 +300,7 @@ def export_quantized_weights(
 
 
 def _infer_config_from_state_dict(
-    state_dict: dict,
+    state_dict: dict[str, torch.Tensor],
     fallback_n_layer: int = 6,
     fallback_n_head: int = 6,
     fallback_block_size: int = 2048,
@@ -382,7 +382,7 @@ def _infer_config_from_state_dict(
     )
 
 
-def _extract_config_from_dict(cfg: dict) -> AsciiGPTConfig | None:
+def _extract_config_from_dict(cfg: object) -> AsciiGPTConfig | None:
     """Extract AsciiGPTConfig from a config dict (new format)."""
     if not isinstance(cfg, dict):
         return None
@@ -401,7 +401,7 @@ def _extract_config_from_dict(cfg: dict) -> AsciiGPTConfig | None:
     )
 
 
-def _extract_config_from_object(cfg) -> AsciiGPTConfig | None:
+def _extract_config_from_object(cfg: object) -> AsciiGPTConfig | None:
     """Extract AsciiGPTConfig from a config object (old format)."""
     if cfg is None:
         return None
@@ -409,12 +409,13 @@ def _extract_config_from_object(cfg) -> AsciiGPTConfig | None:
     if not hasattr(cfg, "n_layer"):
         return None
 
+    cfg_obj = cast(Any, cfg)
     return AsciiGPTConfig(
-        n_layer=cfg.n_layer,
-        n_head=cfg.n_head,
-        n_embd=cfg.n_embd,
-        block_size=cfg.block_size,
-        dropout=getattr(cfg, "dropout", 0.1),
+        n_layer=cfg_obj.n_layer,
+        n_head=cfg_obj.n_head,
+        n_embd=cfg_obj.n_embd,
+        block_size=cfg_obj.block_size,
+        dropout=getattr(cfg_obj, "dropout", 0.1),
     )
 
 
