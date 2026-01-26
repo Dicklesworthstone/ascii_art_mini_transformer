@@ -161,3 +161,413 @@ def test_validate_export_enforces_tensor_shapes_and_layer_count(tmp_path: Path) 
     cfg_path.write_text(json.dumps(cfg_bad_embd), encoding="utf-8")
     with pytest.raises(ValueError, match=r"token_embedding\.weight"):
         validate_export(tmp_path)
+
+
+# Additional tests for config inference and export_from_checkpoint
+from train.export import (
+    _infer_config_from_state_dict,
+    _extract_config_from_dict,
+    _extract_config_from_object,
+    export_from_checkpoint,
+    print_export_summary,
+    _should_quantize_weight,
+    quantize_state_dict_weights,
+)
+
+
+class TestInferConfigFromStateDict:
+    """Tests for _infer_config_from_state_dict function."""
+
+    def test_infers_vocab_and_n_embd_from_token_embedding(self) -> None:
+        """Should infer vocab_size and n_embd from token embedding weight shape."""
+        state_dict = {
+            "token_embedding.weight": torch.randn(107, 256),
+            "blocks.0.ln_1.weight": torch.randn(256),
+            "blocks.1.ln_1.weight": torch.randn(256),
+        }
+        config = _infer_config_from_state_dict(state_dict)
+        assert config.vocab_size == 107
+        assert config.n_embd == 256
+
+    def test_infers_n_layer_from_block_indices(self) -> None:
+        """Should count transformer blocks from state dict keys."""
+        state_dict = {
+            "token_embedding.weight": torch.randn(107, 128),
+            "blocks.0.attn.c_attn.weight": torch.randn(384, 128),
+            "blocks.1.attn.c_attn.weight": torch.randn(384, 128),
+            "blocks.2.attn.c_attn.weight": torch.randn(384, 128),
+        }
+        config = _infer_config_from_state_dict(state_dict)
+        assert config.n_layer == 3
+
+    def test_infers_block_size_from_attention_mask(self) -> None:
+        """Should infer block_size from attention mask shape."""
+        state_dict = {
+            "token_embedding.weight": torch.randn(107, 128),
+            "blocks.0.attn.mask": torch.ones(1, 1, 512, 512),
+        }
+        config = _infer_config_from_state_dict(state_dict)
+        assert config.block_size == 512
+
+    def test_uses_fallback_when_no_blocks_found(self) -> None:
+        """Should use fallback n_layer when no blocks in state dict."""
+        state_dict = {
+            "token_embedding.weight": torch.randn(107, 64),
+        }
+        config = _infer_config_from_state_dict(
+            state_dict, fallback_n_layer=4
+        )
+        assert config.n_layer == 4
+
+    def test_uses_fallback_block_size_when_no_mask(self) -> None:
+        """Should use fallback block_size when no attention mask found."""
+        state_dict = {
+            "token_embedding.weight": torch.randn(107, 64),
+        }
+        config = _infer_config_from_state_dict(
+            state_dict, fallback_block_size=1024
+        )
+        assert config.block_size == 1024
+
+    def test_raises_on_missing_token_embedding(self) -> None:
+        """Should raise ValueError when token_embedding.weight is missing."""
+        state_dict = {
+            "blocks.0.ln_1.weight": torch.randn(256),
+        }
+        with pytest.raises(ValueError, match="token_embedding.weight"):
+            _infer_config_from_state_dict(state_dict)
+
+    def test_infers_n_head_from_common_head_dims(self) -> None:
+        """Should infer n_head from common head dimensions (64, 128, etc.)."""
+        # With n_embd=256 and head_dim=64, n_head should be 4
+        state_dict = {
+            "token_embedding.weight": torch.randn(107, 256),
+        }
+        config = _infer_config_from_state_dict(state_dict)
+        assert config.n_embd == 256
+        assert config.n_head == 4  # 256 / 64 = 4
+
+
+class TestExtractConfigFromDict:
+    """Tests for _extract_config_from_dict function."""
+
+    def test_extracts_config_from_valid_dict(self) -> None:
+        """Should extract config from dict with required keys."""
+        cfg = {
+            "n_layer": 4,
+            "n_head": 4,
+            "n_embd": 256,
+            "block_size": 1024,
+            "dropout": 0.2,
+            "vocab_size": 100,
+        }
+        result = _extract_config_from_dict(cfg)
+        assert result is not None
+        assert result.n_layer == 4
+        assert result.n_head == 4
+        assert result.n_embd == 256
+        assert result.block_size == 1024
+        assert result.dropout == 0.2
+        assert result.vocab_size == 100
+
+    def test_uses_defaults_for_optional_keys(self) -> None:
+        """Should use defaults for missing optional keys."""
+        cfg = {
+            "n_layer": 2,
+            "n_head": 2,
+            "n_embd": 64,
+            "block_size": 256,
+        }
+        result = _extract_config_from_dict(cfg)
+        assert result is not None
+        assert result.dropout == 0.1  # default
+        assert result.vocab_size == 107  # default
+
+    def test_returns_none_for_non_dict(self) -> None:
+        """Should return None for non-dict input."""
+        assert _extract_config_from_dict(None) is None
+        assert _extract_config_from_dict("string") is None
+        assert _extract_config_from_dict([1, 2, 3]) is None
+
+    def test_returns_none_for_missing_required_keys(self) -> None:
+        """Should return None when required keys are missing."""
+        cfg = {"n_layer": 4, "n_head": 4}  # missing n_embd and block_size
+        assert _extract_config_from_dict(cfg) is None
+
+
+class TestExtractConfigFromObject:
+    """Tests for _extract_config_from_object function."""
+
+    def test_extracts_config_from_object_with_attributes(self) -> None:
+        """Should extract config from object with required attributes."""
+
+        class MockConfig:
+            n_layer = 6
+            n_head = 6
+            n_embd = 384
+            block_size = 2048
+            dropout = 0.1
+
+        result = _extract_config_from_object(MockConfig())
+        assert result is not None
+        assert result.n_layer == 6
+        assert result.n_head == 6
+        assert result.n_embd == 384
+        assert result.block_size == 2048
+
+    def test_returns_none_for_none_input(self) -> None:
+        """Should return None for None input."""
+        assert _extract_config_from_object(None) is None
+
+    def test_returns_none_for_object_without_n_layer(self) -> None:
+        """Should return None for object without n_layer attribute."""
+
+        class IncompleteConfig:
+            n_head = 4
+            n_embd = 256
+
+        assert _extract_config_from_object(IncompleteConfig()) is None
+
+    def test_uses_default_dropout_when_missing(self) -> None:
+        """Should use default dropout when attribute is missing."""
+
+        class ConfigNoDropout:
+            n_layer = 2
+            n_head = 2
+            n_embd = 64
+            block_size = 256
+
+        result = _extract_config_from_object(ConfigNoDropout())
+        assert result is not None
+        assert result.dropout == 0.1  # default
+
+
+class TestExportFromCheckpoint:
+    """Tests for export_from_checkpoint function."""
+
+    def test_exports_from_valid_checkpoint(self, tmp_path: Path) -> None:
+        """Should export from a valid checkpoint file."""
+        # Create a checkpoint
+        model, tokenizer = _make_tiny_model()
+        checkpoint_path = tmp_path / "test.pt"
+        checkpoint = {
+            "model": model.state_dict(),
+            "model_config": {
+                "n_layer": 2,
+                "n_head": 2,
+                "n_embd": 64,
+                "block_size": 64,
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        output_dir = tmp_path / "export"
+        result = export_from_checkpoint(checkpoint_path, output_dir)
+
+        assert result == output_dir
+        assert (output_dir / "model.safetensors").exists()
+        assert (output_dir / "config.json").exists()
+        assert (output_dir / "tokenizer.json").exists()
+
+    def test_exports_with_quantization(self, tmp_path: Path) -> None:
+        """Should export with quantization when requested."""
+        model, tokenizer = _make_tiny_model()
+        checkpoint_path = tmp_path / "test.pt"
+        checkpoint = {
+            "model": model.state_dict(),
+            "model_config": {
+                "n_layer": 2,
+                "n_head": 2,
+                "n_embd": 64,
+                "block_size": 64,
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        output_dir = tmp_path / "export"
+        export_from_checkpoint(
+            checkpoint_path, output_dir, quantize="both"
+        )
+
+        assert (output_dir / "model_int8.safetensors").exists()
+        assert (output_dir / "model_int4.safetensors").exists()
+        assert (output_dir / "quant_config.json").exists()
+
+    def test_infers_config_when_not_in_checkpoint(self, tmp_path: Path) -> None:
+        """Should infer config from weights when not in checkpoint."""
+        model, _ = _make_tiny_model()
+        checkpoint_path = tmp_path / "test.pt"
+        # Save just the model state dict, no config
+        torch.save({"model": model.state_dict()}, checkpoint_path)
+
+        output_dir = tmp_path / "export"
+        export_from_checkpoint(
+            checkpoint_path,
+            output_dir,
+            n_layer=2,
+            n_head=2,
+            n_embd=64,
+            block_size=64,
+        )
+
+        assert (output_dir / "model.safetensors").exists()
+        config = json.loads((output_dir / "config.json").read_text())
+        assert config["n_layer"] == 2
+
+    def test_handles_training_config_key(self, tmp_path: Path) -> None:
+        """Should extract config from training_config key."""
+        model, _ = _make_tiny_model()
+        checkpoint_path = tmp_path / "test.pt"
+        checkpoint = {
+            "model": model.state_dict(),
+            "training_config": {
+                "n_layer": 2,
+                "n_head": 2,
+                "n_embd": 64,
+                "block_size": 64,
+            },
+        }
+        torch.save(checkpoint, checkpoint_path)
+
+        output_dir = tmp_path / "export"
+        export_from_checkpoint(checkpoint_path, output_dir)
+
+        assert (output_dir / "config.json").exists()
+
+
+class TestValidateExportEdgeCases:
+    """Additional edge case tests for validate_export."""
+
+    def test_raises_on_missing_file(self, tmp_path: Path) -> None:
+        """Should raise FileNotFoundError for missing required files."""
+        # Create partial export (missing tokenizer.json)
+        model, tokenizer = _make_tiny_model()
+        export_model(model, tokenizer, tmp_path, export_dtype="float32")
+        (tmp_path / "tokenizer.json").unlink()
+
+        with pytest.raises(FileNotFoundError, match="tokenizer.json"):
+            validate_export(tmp_path)
+
+    def test_raises_on_invalid_config_type(self, tmp_path: Path) -> None:
+        """Should raise on non-integer config values."""
+        model, tokenizer = _make_tiny_model()
+        export_model(model, tokenizer, tmp_path, export_dtype="float32")
+
+        cfg_path = tmp_path / "config.json"
+        cfg = json.loads(cfg_path.read_text())
+        cfg["n_layer"] = "six"  # string instead of int
+        cfg_path.write_text(json.dumps(cfg))
+
+        with pytest.raises(ValueError, match="must be an int"):
+            validate_export(tmp_path)
+
+    def test_raises_on_zero_config_value(self, tmp_path: Path) -> None:
+        """Should raise on zero config values."""
+        model, tokenizer = _make_tiny_model()
+        export_model(model, tokenizer, tmp_path, export_dtype="float32")
+
+        cfg_path = tmp_path / "config.json"
+        cfg = json.loads(cfg_path.read_text())
+        cfg["n_layer"] = 0
+        cfg_path.write_text(json.dumps(cfg))
+
+        with pytest.raises(ValueError, match="must be > 0"):
+            validate_export(tmp_path)
+
+    def test_raises_on_nembd_not_divisible_by_nhead(self, tmp_path: Path) -> None:
+        """Should raise when n_embd is not divisible by n_head."""
+        model, tokenizer = _make_tiny_model()
+        export_model(model, tokenizer, tmp_path, export_dtype="float32")
+
+        cfg_path = tmp_path / "config.json"
+        cfg = json.loads(cfg_path.read_text())
+        cfg["n_head"] = 3  # 64 / 3 is not an integer
+        cfg_path.write_text(json.dumps(cfg))
+
+        with pytest.raises(ValueError, match="divisible by n_head"):
+            validate_export(tmp_path)
+
+
+class TestPrintExportSummary:
+    """Tests for print_export_summary function."""
+
+    def test_prints_summary_without_error(self, tmp_path: Path, capsys) -> None:
+        """Should print summary without errors."""
+        model, tokenizer = _make_tiny_model()
+        export_model(model, tokenizer, tmp_path, export_dtype="float32")
+
+        print_export_summary(tmp_path)
+
+        captured = capsys.readouterr()
+        assert "Exported Model Summary" in captured.out
+        assert "Layers:" in captured.out
+        assert "Parameters:" in captured.out
+
+
+class TestShouldQuantizeWeight:
+    """Tests for _should_quantize_weight helper."""
+
+    def test_returns_true_for_linear_weights(self) -> None:
+        """Should return True for 2D weights ending in .weight."""
+        tensor = torch.randn(256, 128)
+        assert _should_quantize_weight("blocks.0.attn.c_attn.weight", tensor) is True
+
+    def test_returns_false_for_non_2d_tensors(self) -> None:
+        """Should return False for non-2D tensors."""
+        tensor = torch.randn(256)
+        assert _should_quantize_weight("ln_f.weight", tensor) is False
+
+    def test_returns_false_for_non_weight_keys(self) -> None:
+        """Should return False for keys not ending in .weight."""
+        tensor = torch.randn(256, 128)
+        assert _should_quantize_weight("blocks.0.ln_1.bias", tensor) is False
+
+    def test_returns_false_for_embeddings(self) -> None:
+        """Should return False for embedding layers."""
+        tensor = torch.randn(107, 256)
+        assert _should_quantize_weight("token_embedding.weight", tensor) is False
+        assert _should_quantize_weight("lm_head.weight", tensor) is False
+        assert _should_quantize_weight("pos_encoding.weight", tensor) is False
+
+
+class TestQuantizeStateDictWeights:
+    """Tests for quantize_state_dict_weights function."""
+
+    def test_raises_on_invalid_precision(self) -> None:
+        """Should raise ValueError for unsupported precision."""
+        state_dict = {"blocks.0.attn.c_attn.weight": torch.randn(256, 128)}
+        with pytest.raises(ValueError, match="Unsupported precision"):
+            quantize_state_dict_weights(state_dict, "int16")
+
+    def test_quantizes_linear_weights_int8(self) -> None:
+        """Should quantize linear weights to int8."""
+        state_dict = {
+            "blocks.0.attn.c_attn.weight": torch.randn(256, 128),
+            "ln_f.weight": torch.randn(256),  # not quantized
+        }
+        quant_state, meta = quantize_state_dict_weights(state_dict, "int8")
+
+        assert "blocks.0.attn.c_attn.weight.int_data" in quant_state
+        assert "blocks.0.attn.c_attn.weight.scale" in quant_state
+        assert "ln_f.weight" in quant_state  # kept as float
+        assert quant_state["blocks.0.attn.c_attn.weight.int_data"].dtype == torch.int8
+
+    def test_quantizes_linear_weights_int4(self) -> None:
+        """Should quantize linear weights to int4 (packed)."""
+        state_dict = {
+            "blocks.0.attn.c_attn.weight": torch.randn(256, 128),
+        }
+        quant_state, meta = quantize_state_dict_weights(state_dict, "int4")
+
+        assert "blocks.0.attn.c_attn.weight.int_data" in quant_state
+        assert quant_state["blocks.0.attn.c_attn.weight.int_data"].dtype == torch.uint8
+
+    def test_skips_mask_buffers(self) -> None:
+        """Should skip attention mask buffers."""
+        state_dict = {
+            "blocks.0.attn.mask": torch.ones(1, 1, 64, 64),
+            "blocks.0.attn.c_attn.weight": torch.randn(256, 128),
+        }
+        quant_state, meta = quantize_state_dict_weights(state_dict, "int8")
+
+        assert not any(k.endswith(".mask") for k in quant_state)
