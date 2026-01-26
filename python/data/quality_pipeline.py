@@ -212,7 +212,9 @@ def run_validation(
         # Update database if needed (with retry)
         if not dry_run and is_valid != art.is_valid:
             iv = is_valid
-            retry_on_lock(lambda: update_ascii_art(conn, art_id=aid, fields={"is_valid": iv}))
+            retry_on_lock(
+                lambda: update_ascii_art(conn, art_id=aid, fields={"is_valid": iv})
+            )
 
         # Collect statistics
         report.charset_distribution[art.charset] += 1

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import torch
 
-from python.inference.generate import (
+# Add parent to path for imports before importing project modules
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+from inference.generate import (  # noqa: E402
     GoldenCase,
     _infer_device,
     generate,
@@ -27,7 +31,8 @@ class _TinyTokenizer:
         _ = (width, height, style)
         return list(self._prompt_tokens)
 
-    def decode(self, token_ids: list[int]) -> str:
+    def decode(self, token_ids: list[int], skip_special_tokens: bool = True) -> str:
+        _ = skip_special_tokens
         table = {
             0: "",
             1: "\n",
