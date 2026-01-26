@@ -234,4 +234,100 @@ mod tests {
         let out = pe.forward(&input).unwrap();
         assert_eq!(out.dims(), &[1, 32, config.n_embd]);
     }
+
+    #[test]
+    fn test_position_clamping_row_boundary() {
+        let device = Device::Cpu;
+
+        // Config with very small max_rows to test clamping
+        let config = ModelConfig {
+            max_rows: 3,
+            max_cols: 10,
+            newline_token_id: 7,
+            ..ModelConfig::small()
+        };
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let pe = PositionalEncoding2D::new(&config, vb).unwrap();
+
+        // Many newlines: row indices will exceed max_rows without clamping
+        // [a, \n, b, \n, c, \n, d, \n, e] -> rows should clamp at max_rows - 1 = 2
+        let tokens = vec![10u32, 7, 11, 7, 12, 7, 13, 7, 14];
+        let input = Tensor::new(vec![tokens], &device).unwrap();
+
+        let (rows, _cols) = pe.compute_2d_positions(&input).unwrap();
+        let row_vec: Vec<Vec<u32>> = rows.to_vec2().unwrap();
+
+        // Expected rows: [0, 0, 1, 1, 2, 2, 2, 2, 2] (clamped at 2)
+        assert_eq!(row_vec[0], vec![0, 0, 1, 1, 2, 2, 2, 2, 2]);
+
+        // Forward should work without panicking on out-of-bounds
+        let out = pe.forward(&input).unwrap();
+        assert_eq!(out.dims(), &[1, 9, config.n_embd]);
+    }
+
+    #[test]
+    fn test_position_clamping_col_boundary() {
+        let device = Device::Cpu;
+
+        // Config with very small max_cols to test clamping
+        let config = ModelConfig {
+            max_rows: 10,
+            max_cols: 4,
+            newline_token_id: 7,
+            ..ModelConfig::small()
+        };
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let pe = PositionalEncoding2D::new(&config, vb).unwrap();
+
+        // No newlines: column indices will exceed max_cols without clamping
+        let tokens: Vec<u32> = (10u32..20).collect(); // 10 tokens, no newlines
+        let input = Tensor::new(vec![tokens], &device).unwrap();
+
+        let (_rows, cols) = pe.compute_2d_positions(&input).unwrap();
+        let col_vec: Vec<Vec<u32>> = cols.to_vec2().unwrap();
+
+        // Expected cols: [0, 1, 2, 3, 3, 3, 3, 3, 3, 3] (clamped at 3)
+        assert_eq!(col_vec[0], vec![0, 1, 2, 3, 3, 3, 3, 3, 3, 3]);
+
+        // Forward should work without panicking on out-of-bounds
+        let out = pe.forward(&input).unwrap();
+        assert_eq!(out.dims(), &[1, 10, config.n_embd]);
+    }
+
+    #[test]
+    fn test_position_with_batch() {
+        let device = Device::Cpu;
+        let config = ModelConfig::small();
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let pe = PositionalEncoding2D::new(&config, vb).unwrap();
+
+        // Test with batch_size > 1
+        let batch_tokens = vec![
+            vec![10u32, 11, 7, 12, 13],  // "ab\ncd"
+            vec![20u32, 21, 22, 23, 24], // "abcde" (no newlines)
+        ];
+        let input = Tensor::new(batch_tokens, &device).unwrap();
+
+        let out = pe.forward(&input).unwrap();
+        assert_eq!(out.dims(), &[2, 5, config.n_embd]);
+
+        // Verify positions are computed correctly per batch item
+        let (rows, cols) = pe.compute_2d_positions(&input).unwrap();
+        let row_vec: Vec<Vec<u32>> = rows.to_vec2().unwrap();
+        let col_vec: Vec<Vec<u32>> = cols.to_vec2().unwrap();
+
+        // First batch: rows [0,0,0,1,1], cols [0,1,2,0,1]
+        assert_eq!(row_vec[0], vec![0, 0, 0, 1, 1]);
+        assert_eq!(col_vec[0], vec![0, 1, 2, 0, 1]);
+
+        // Second batch: rows [0,0,0,0,0], cols [0,1,2,3,4]
+        assert_eq!(row_vec[1], vec![0, 0, 0, 0, 0]);
+        assert_eq!(col_vec[1], vec![0, 1, 2, 3, 4]);
+    }
 }

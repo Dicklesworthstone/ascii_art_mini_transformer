@@ -250,4 +250,103 @@ mod tests {
         let logits = model.forward(&input).unwrap();
         assert_eq!(logits.dims(), &[2, 8, config.vocab_size]);
     }
+
+    #[test]
+    fn test_forward_shapes_multiple_seq_lens() {
+        let device = Device::Cpu;
+        let config = ModelConfig::small();
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let model = AsciiGPT::new(config.clone(), vb).unwrap();
+
+        // Test multiple sequence lengths
+        for seq_len in [1, 4, 16, 32, 64] {
+            let input = Tensor::zeros((1, seq_len), DType::U32, &device).unwrap();
+            let logits = model.forward(&input).unwrap();
+            assert_eq!(
+                logits.dims(),
+                &[1, seq_len, config.vocab_size],
+                "Shape mismatch for seq_len={seq_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_forward_last_shape_and_equivalence() {
+        let device = Device::Cpu;
+        let config = ModelConfig::small();
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let model = AsciiGPT::new(config.clone(), vb).unwrap();
+
+        // Create input with specific tokens
+        let input = Tensor::new(vec![vec![1u32, 2, 3, 4, 5]], &device).unwrap();
+
+        // Get full forward output
+        let full_logits = model.forward(&input).unwrap();
+        assert_eq!(full_logits.dims(), &[1, 5, config.vocab_size]);
+
+        // Get forward_last output
+        let last_logits = model.forward_last(&input).unwrap();
+        assert_eq!(
+            last_logits.dims(),
+            &[1, config.vocab_size],
+            "forward_last should return (batch, vocab_size)"
+        );
+
+        // Verify equivalence: forward_last should equal slicing full_logits[:, -1, :]
+        let sliced = full_logits.narrow(1, 4, 1).unwrap().squeeze(1).unwrap();
+        assert_eq!(sliced.dims(), last_logits.dims());
+
+        // Compare values (should be identical)
+        let last_vec: Vec<Vec<f32>> = last_logits.to_vec2().unwrap();
+        let sliced_vec: Vec<Vec<f32>> = sliced.to_vec2().unwrap();
+        for (a, b) in last_vec[0].iter().zip(sliced_vec[0].iter()) {
+            assert!(
+                (a - b).abs() < 1e-6,
+                "forward_last and sliced forward should be equivalent"
+            );
+        }
+    }
+
+    #[test]
+    fn test_forward_last_various_seq_lens() {
+        let device = Device::Cpu;
+        let config = ModelConfig::small();
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let model = AsciiGPT::new(config.clone(), vb).unwrap();
+
+        // Test forward_last with various sequence lengths
+        for seq_len in [1, 2, 8, 16] {
+            let input = Tensor::zeros((1, seq_len), DType::U32, &device).unwrap();
+            let last_logits = model.forward_last(&input).unwrap();
+            assert_eq!(
+                last_logits.dims(),
+                &[1, config.vocab_size],
+                "forward_last shape mismatch for seq_len={seq_len}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_sequence_exceeds_block_size() {
+        let device = Device::Cpu;
+        let config = ModelConfig {
+            block_size: 16, // Small block size for testing
+            ..ModelConfig::small()
+        };
+        let varmap = candle_nn::VarMap::new();
+        let vb = VarBuilder::from_varmap(&varmap, DType::F32, &device);
+
+        let model = AsciiGPT::new(config, vb).unwrap();
+
+        // Sequence that exceeds block_size should error
+        let input = Tensor::zeros((1, 20), DType::U32, &device).unwrap();
+        let result = model.forward(&input);
+        assert!(result.is_err(), "Should error when seq_len > block_size");
+    }
 }
