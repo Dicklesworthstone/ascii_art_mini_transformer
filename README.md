@@ -150,3 +150,26 @@ tests/coverage/run_coverage.sh --xml
 The lint script runs:
 - Python: `ruff check`, `ruff format --check`, `mypy --strict`
 - Rust: `cargo fmt --check`, `cargo clippy --all-targets`
+
+## Parity fixtures (Python ↔ Rust)
+
+The Rust integration tests validate Python ↔ Rust parity using small, deterministic fixtures under `rust/ascii-gen/test_data/crossval/`.
+
+When to regenerate:
+- Tokenizer changes (IDs, special tokens, exported `tokenizer.json` format)
+- Constraint/decoding changes (logit masking, stopping rules, width/height behavior)
+- Model math changes (attention/LN behavior, output filtering) that affect logits/generation
+
+Workflow:
+1. Regenerate fixtures:
+   - `PYTHONPATH=. .venv/bin/python python/tests/generate_crossval_data.py`
+2. Review the diffs:
+   - `git diff rust/ascii-gen/test_data/crossval/`
+   - Drift should be explainable by the intentional change; otherwise treat as a bug.
+3. Re-run parity checks:
+   - `cargo test --manifest-path rust/ascii-gen/Cargo.toml --test integration`
+
+Keep fixtures small/reviewable:
+- Prefer tiny model configs (the generator uses a small, fixed-seed model).
+- Limit cases to a handful of prompts/seeds; keep generated token counts short.
+- If a change is expected to alter outputs, mention why in the commit message.
