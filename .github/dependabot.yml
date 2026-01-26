@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(ci)"
+    labels:
+      - "dependencies"
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: "cargo"
+    directory: "/rust/ascii-gen"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "deps(rust)"
+    labels:
+      - "dependencies"
+    open-pull-requests-limit: 5
