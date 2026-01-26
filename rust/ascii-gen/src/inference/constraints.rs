@@ -166,6 +166,75 @@ mod tests {
     }
 
     #[test]
+    fn test_max_chars_forces_eos_after_limit_reached() {
+        let tok = AsciiTokenizer::new();
+        let mut d = ConstrainedDecoder::new(40, 20, 2);
+        d.update(tok.encode_char('a'), tok);
+        d.update(tok.encode_char('b'), tok);
+        assert!(d.should_stop());
+
+        let mut logits = vec![0.0_f32; tok.vocab_size() as usize];
+        apply_constraints_to_logits(&mut logits, &d, tok);
+
+        let eos = tok.eos_id() as usize;
+        let nl = tok.newline_id() as usize;
+        assert!(logits[eos].is_finite());
+        assert!(!logits[nl].is_finite());
+        assert_eq!(
+            logits.iter().filter(|v| v.is_finite()).count(),
+            1,
+            "only EOS should be allowed once max_chars is reached"
+        );
+    }
+
+    #[test]
+    fn test_max_lines_forces_eos_after_newline_exceeds_limit() {
+        let tok = AsciiTokenizer::new();
+        let mut d = ConstrainedDecoder::new(40, 1, 100);
+        d.update(tok.newline_id(), tok);
+        assert!(
+            d.should_stop(),
+            "newline should advance current_line past max_lines"
+        );
+
+        let mut logits = vec![0.0_f32; tok.vocab_size() as usize];
+        apply_constraints_to_logits(&mut logits, &d, tok);
+
+        let eos = tok.eos_id() as usize;
+        let nl = tok.newline_id() as usize;
+        assert!(logits[eos].is_finite());
+        assert!(!logits[nl].is_finite());
+        assert_eq!(
+            logits.iter().filter(|v| v.is_finite()).count(),
+            1,
+            "only EOS should be allowed once max_lines is reached"
+        );
+    }
+
+    #[test]
+    fn test_width_forces_newline_before_last_line() {
+        let tok = AsciiTokenizer::new();
+        let mut d = ConstrainedDecoder::new(3, 2, 100);
+        d.update(tok.encode_char('a'), tok);
+        d.update(tok.encode_char('b'), tok);
+        d.update(tok.encode_char('c'), tok);
+        assert!(d.should_force_newline());
+
+        let mut logits = vec![0.0_f32; tok.vocab_size() as usize];
+        apply_constraints_to_logits(&mut logits, &d, tok);
+
+        let eos = tok.eos_id() as usize;
+        let nl = tok.newline_id() as usize;
+        assert!(!logits[eos].is_finite());
+        assert!(logits[nl].is_finite());
+        assert_eq!(
+            logits.iter().filter(|v| v.is_finite()).count(),
+            1,
+            "only newline should be allowed at width boundary before last line"
+        );
+    }
+
+    #[test]
     fn test_last_line_width_forces_eos() {
         let tok = AsciiTokenizer::new();
         let mut d = ConstrainedDecoder::new(1, 1, 100);
@@ -184,5 +253,61 @@ mod tests {
             1,
             "only EOS should be allowed at last-line width boundary"
         );
+    }
+
+    #[test]
+    fn test_last_line_width_forces_eos_when_on_last_allowed_line() {
+        let tok = AsciiTokenizer::new();
+        let mut d = ConstrainedDecoder::new(3, 2, 100);
+        d.update(tok.newline_id(), tok);
+        assert_eq!(d.current_line, 1);
+
+        d.update(tok.encode_char('a'), tok);
+        d.update(tok.encode_char('b'), tok);
+        d.update(tok.encode_char('c'), tok);
+        assert!(d.should_force_newline());
+
+        let mut logits = vec![0.0_f32; tok.vocab_size() as usize];
+        apply_constraints_to_logits(&mut logits, &d, tok);
+
+        let eos = tok.eos_id() as usize;
+        let nl = tok.newline_id() as usize;
+        assert!(logits[eos].is_finite());
+        assert!(!logits[nl].is_finite());
+        assert_eq!(
+            logits.iter().filter(|v| v.is_finite()).count(),
+            1,
+            "only EOS should be allowed at last-line width boundary"
+        );
+    }
+
+    #[test]
+    fn test_non_output_tokens_do_not_affect_decoder_state() {
+        let tok = AsciiTokenizer::new();
+        let mut d = ConstrainedDecoder::new(40, 20, 100);
+
+        d.update(tok.encode_char('a'), tok);
+        assert_eq!((d.current_line, d.current_col, d.total_chars), (0, 1, 1));
+
+        let baseline = (d.current_line, d.current_col, d.total_chars);
+        for token_id in [
+            tok.bos_id(),
+            tok.eos_id(),
+            tok.unk_id(),
+            tok.sep_id(),
+            tok.width_id(),
+            tok.height_id(),
+            tok.style_art_id(),
+            tok.style_banner_id(),
+            tok.style_simple_id(),
+            tok.style_detailed_id(),
+        ] {
+            d.update(token_id, tok);
+            assert_eq!(
+                (d.current_line, d.current_col, d.total_chars),
+                baseline,
+                "non-output token {token_id} should not mutate decoder state"
+            );
+        }
     }
 }
