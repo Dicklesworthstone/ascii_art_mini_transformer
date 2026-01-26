@@ -79,12 +79,27 @@ class ConstrainedDecoder:
                 masked[int(token_id)] = logits[int(token_id)]
             return masked
 
+        masked = logits
+
+        # Avoid empty generations: only permit EOS after we've emitted at least one output token.
+        if self.total_tokens == 0:
+            masked = masked.clone()
+            masked[int(tokenizer.eos_token_id)] = float("-inf")
+
+        # Prevent creating an extra row beyond `max_height`. On the last allowed row, disallow
+        # newline unless it's already forced to EOS by `forced_token_id()`.
+        if self.max_height > 0 and self.current_row >= self.max_height - 1:
+            if masked is logits:
+                masked = masked.clone()
+            masked[int(tokenizer.newline_token_id)] = float("-inf")
+
         is_special_token = getattr(tokenizer, "is_special_token", None)
         if not callable(is_special_token):
-            return logits
+            return masked
 
         is_special_fn = cast(Callable[[int], bool], is_special_token)
-        masked = logits.clone()
+        if masked is logits:
+            masked = logits.clone()
 
         vocab_size = int(masked.shape[0])
         newline_token_id = int(tokenizer.newline_token_id)

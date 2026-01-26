@@ -25,6 +25,10 @@ EXPORT_DIR="$TMP_DIR/exported"
 log "=== E2E: export ==="
 "$REPO_ROOT/tests/e2e/e2e_python_export.sh" "$EXPORT_DIR" 2>&1 | tee -a "$LOG_FILE"
 
+log "=== E2E: python inference ==="
+E2E_MODEL_PATH="$EXPORT_DIR/model.safetensors" "$REPO_ROOT/tests/e2e/e2e_python_infer.sh" \
+  2>&1 | tee -a "$LOG_FILE"
+
 log "=== E2E: rust ==="
 E2E_MODEL_PATH="$EXPORT_DIR/model.safetensors" E2E_MAX_CHARS=80 "$REPO_ROOT/tests/e2e/e2e_rust.sh" 2>&1 | tee -a "$LOG_FILE"
 

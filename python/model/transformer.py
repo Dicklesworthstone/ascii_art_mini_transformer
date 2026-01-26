@@ -15,6 +15,7 @@ Based on:
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -284,7 +285,7 @@ class AsciiGPT(nn.Module):
 
         # Report parameter count
         n_params = sum(p.numel() for p in self.parameters())
-        print(f"AsciiGPT initialized with {n_params:,} parameters")
+        print(f"AsciiGPT initialized with {n_params:,} parameters", file=sys.stderr)
 
     def _init_weights(self, module: nn.Module) -> None:
         """Initialize model weights."""
