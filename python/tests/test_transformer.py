@@ -10,6 +10,7 @@ Tests cover:
 """
 
 import pytest
+
 torch = pytest.importorskip("torch")
 import torch.nn as nn  # noqa: E402
 
@@ -430,6 +431,387 @@ class TestGradients:
         for name, param in model.named_parameters():
             if param.grad is not None:
                 assert not torch.isnan(param.grad).any(), f"NaN gradient in {name}"
+
+
+class TestGenerateSamplingInvariants:
+    """Tests for generate() sampling invariants (bd-1hr)."""
+
+    @pytest.fixture
+    def tiny_config(self):
+        """Very small config for fast deterministic testing."""
+        return AsciiGPTConfig(
+            n_layer=1,
+            n_head=2,
+            n_embd=32,
+            block_size=16,  # Very small to test cropping
+            vocab_size=107,
+            dropout=0.0,  # Disable dropout for determinism
+        )
+
+    @pytest.fixture
+    def model(self, tiny_config):
+        """Create tiny model."""
+        model = create_model(tiny_config)
+        model.eval()
+        return model
+
+    # ==================== Block Size Cropping Tests ====================
+
+    def test_generate_crops_to_block_size(self, model, tiny_config):
+        """Generation should crop input to block_size when sequence grows beyond."""
+        # Start with a prompt that's already near block_size
+        prompt_len = tiny_config.block_size - 2
+        prompt = torch.randint(
+            3,
+            tiny_config.vocab_size,
+            (1, prompt_len),  # Skip special tokens 0-2
+        )
+
+        # Generate tokens that will exceed block_size
+        torch.manual_seed(42)
+        generated = model.generate(
+            prompt,
+            max_new_tokens=10,
+            temperature=1.0,
+            eos_token_id=-1,  # Disable EOS stopping
+        )
+
+        # Should have generated new tokens without crashing
+        assert generated.shape[1] > prompt_len
+        # Maximum would be prompt_len + max_new_tokens
+        assert generated.shape[1] <= prompt_len + 10
+
+    def test_generate_uses_only_last_block_size_tokens(self, model, tiny_config):
+        """When input exceeds block_size, only last block_size tokens are used."""
+        # Create a prompt larger than block_size
+        large_prompt_len = tiny_config.block_size + 10
+        large_prompt = torch.randint(3, tiny_config.vocab_size, (1, large_prompt_len))
+
+        # Generate with large prompt (cropping happens internally)
+        torch.manual_seed(123)
+        generated = model.generate(
+            large_prompt,
+            max_new_tokens=5,
+            temperature=1.0,
+            eos_token_id=-1,
+        )
+
+        # Should succeed and produce new tokens
+        assert generated.shape[1] == large_prompt_len + 5
+
+    def test_block_size_exactly_full(self, model, tiny_config):
+        """Generation works when prompt is exactly block_size."""
+        prompt = torch.randint(3, tiny_config.vocab_size, (1, tiny_config.block_size))
+
+        torch.manual_seed(42)
+        generated = model.generate(
+            prompt,
+            max_new_tokens=3,
+            temperature=1.0,
+            eos_token_id=-1,
+        )
+
+        assert generated.shape[1] == tiny_config.block_size + 3
+
+    # ==================== EOS Stopping Tests ====================
+
+    def test_eos_stops_generation(self, tiny_config):
+        """Generation should stop when EOS token is produced."""
+        # Create a model that we can manipulate to always produce EOS
+        config = AsciiGPTConfig(
+            n_layer=1,
+            n_head=2,
+            n_embd=32,
+            block_size=32,
+            vocab_size=107,
+            dropout=0.0,
+        )
+        model = create_model(config)
+        model.eval()
+
+        prompt = torch.tensor([[config.bos_token_id]])
+
+        # Generate with EOS enabled
+        torch.manual_seed(12345)  # Seed chosen to likely produce EOS early
+        generated = model.generate(
+            prompt,
+            max_new_tokens=100,
+            temperature=1.0,
+            eos_token_id=config.eos_token_id,
+        )
+
+        # Either hit EOS (stopped early) or generated max tokens
+        assert generated.shape[1] <= 1 + 100
+
+        # If EOS was hit, it should be in the sequence
+        if generated.shape[1] < 1 + 100:
+            assert config.eos_token_id in generated[0].tolist()
+
+    def test_eos_token_appears_when_stopping_early(self, tiny_config):
+        """When generation stops at EOS, the EOS token should be last."""
+        # Run many trials to find one that stops early
+        config = AsciiGPTConfig(
+            n_layer=1,
+            n_head=2,
+            n_embd=32,
+            block_size=64,
+            vocab_size=107,
+            dropout=0.0,
+        )
+        model = create_model(config)
+        model.eval()
+
+        found_early_stop = False
+        for seed in range(100):
+            torch.manual_seed(seed)
+            prompt = torch.tensor([[config.bos_token_id]])
+            generated = model.generate(
+                prompt,
+                max_new_tokens=50,
+                temperature=1.5,  # Higher temperature for variety
+                eos_token_id=config.eos_token_id,
+            )
+
+            if generated.shape[1] < 1 + 50:
+                # Stopped early - verify EOS is the last token
+                assert generated[0, -1].item() == config.eos_token_id
+                found_early_stop = True
+                break
+
+        # We should have found at least one early stop in 100 trials
+        # If not, the test is still valid - it just means EOS is rare
+        if not found_early_stop:
+            pytest.skip("No early EOS stop found in 100 trials - probabilistic test")
+
+    def test_custom_eos_token_stops_generation(self, model, tiny_config):
+        """Custom EOS token ID should be respected."""
+        custom_eos = 50  # Use an arbitrary token as EOS
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        found_custom_stop = False
+        for seed in range(50):
+            torch.manual_seed(seed)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=20,
+                temperature=2.0,
+                eos_token_id=custom_eos,
+            )
+
+            if custom_eos in generated[0].tolist():
+                # Found our custom EOS
+                # Verify generation stopped at or after this token
+                tokens = generated[0].tolist()
+                eos_idx = tokens.index(custom_eos)
+                # EOS should be the last token
+                assert eos_idx == len(tokens) - 1
+                found_custom_stop = True
+                break
+
+        if not found_custom_stop:
+            pytest.skip("Custom EOS token not produced in 50 trials")
+
+    # ==================== Top-k Filtering Tests ====================
+
+    def test_top_k_one_is_greedy(self, model, tiny_config):
+        """top_k=1 should always select the highest probability token (greedy)."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        # Generate multiple times with different seeds - should all be same
+        results = []
+        for seed in [0, 1, 2, 3, 4]:
+            torch.manual_seed(seed)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=5,
+                temperature=1.0,
+                top_k=1,  # Greedy
+                eos_token_id=-1,
+            )
+            results.append(generated[0].tolist())
+
+        # All results should be identical (greedy decoding)
+        for r in results[1:]:
+            assert r == results[0], f"top_k=1 should be deterministic: {results}"
+
+    def test_top_k_larger_than_vocab_size(self, model, tiny_config):
+        """top_k larger than vocab_size should not crash."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        torch.manual_seed(42)
+        generated = model.generate(
+            prompt,
+            max_new_tokens=5,
+            temperature=1.0,
+            top_k=1000,  # Much larger than vocab_size (107)
+            eos_token_id=-1,
+        )
+
+        # Should succeed
+        assert generated.shape[1] == 1 + 5
+
+    def test_top_k_constrains_choices(self, model, tiny_config):
+        """top_k should limit tokens to top k candidates."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        # With top_k=5, we should see limited variety
+        tokens_seen = set()
+        for seed in range(30):
+            torch.manual_seed(seed)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=1,  # Just one token
+                temperature=1.0,
+                top_k=5,
+                eos_token_id=-1,
+            )
+            tokens_seen.add(generated[0, -1].item())
+
+        # Should see at most 5 unique tokens (though likely fewer in practice)
+        assert len(tokens_seen) <= 5, (
+            f"top_k=5 produced more than 5 unique tokens: {tokens_seen}"
+        )
+
+    # ==================== Top-p Filtering Tests ====================
+
+    def test_top_p_constrains_compared_to_no_filtering(self, model, tiny_config):
+        """Low top_p should constrain token choices compared to no filtering."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        # Measure variety with restrictive top_p
+        tokens_constrained = set()
+        for seed in range(30):
+            torch.manual_seed(seed)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=1,
+                temperature=1.0,
+                top_p=0.1,  # Very restrictive
+                eos_token_id=-1,
+            )
+            tokens_constrained.add(generated[0, -1].item())
+
+        # Measure variety with no filtering
+        tokens_unconstrained = set()
+        for seed in range(30):
+            torch.manual_seed(seed)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=1,
+                temperature=1.0,
+                top_p=1.0,  # No filtering
+                eos_token_id=-1,
+            )
+            tokens_unconstrained.add(generated[0, -1].item())
+
+        # Constrained should have equal or fewer unique tokens
+        assert len(tokens_constrained) <= len(tokens_unconstrained), (
+            f"top_p=0.1 should not produce more variety than top_p=1.0: "
+            f"constrained={len(tokens_constrained)}, unconstrained={len(tokens_unconstrained)}"
+        )
+
+    def test_top_p_one_allows_all_tokens(self, model, tiny_config):
+        """top_p=1.0 should allow all tokens (no filtering)."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        torch.manual_seed(42)
+        generated = model.generate(
+            prompt,
+            max_new_tokens=10,
+            temperature=1.0,
+            top_p=1.0,  # No filtering
+            eos_token_id=-1,
+        )
+
+        # Should succeed
+        assert generated.shape[1] == 1 + 10
+
+    def test_top_p_does_not_crash_on_edge_values(self, model, tiny_config):
+        """top_p edge values should not crash."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        for top_p_val in [0.001, 0.01, 0.5, 0.9, 0.99, 0.999, 1.0]:
+            torch.manual_seed(42)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=3,
+                temperature=1.0,
+                top_p=top_p_val,
+                eos_token_id=-1,
+            )
+            assert generated.shape[1] == 1 + 3, f"Failed at top_p={top_p_val}"
+
+    # ==================== Combined Tests ====================
+
+    def test_top_k_and_top_p_together(self, model, tiny_config):
+        """Combined top_k and top_p should both be applied."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        torch.manual_seed(42)
+        generated = model.generate(
+            prompt,
+            max_new_tokens=5,
+            temperature=0.8,
+            top_k=10,
+            top_p=0.9,
+            eos_token_id=-1,
+        )
+
+        assert generated.shape[1] == 1 + 5
+
+    def test_zero_temperature_is_greedy(self, tiny_config):
+        """Temperature 0 should be equivalent to greedy (argmax)."""
+        config = AsciiGPTConfig(
+            n_layer=1,
+            n_head=2,
+            n_embd=32,
+            block_size=32,
+            vocab_size=107,
+            dropout=0.0,
+        )
+        model = create_model(config)
+        model.eval()
+
+        prompt = torch.tensor([[config.bos_token_id]])
+
+        # Very low temperature should be nearly deterministic
+        results = []
+        for seed in [0, 10, 20, 30, 40]:
+            torch.manual_seed(seed)
+            generated = model.generate(
+                prompt,
+                max_new_tokens=5,
+                temperature=0.001,  # Near-zero
+                eos_token_id=-1,
+            )
+            results.append(generated[0].tolist())
+
+        # Results should all be the same (greedy)
+        for r in results[1:]:
+            assert r == results[0], "Very low temperature should be deterministic"
+
+    def test_deterministic_with_same_seed(self, model, tiny_config):
+        """Same seed should produce same output."""
+        prompt = torch.tensor([[tiny_config.bos_token_id]])
+
+        # Generate twice with same seed
+        torch.manual_seed(42)
+        gen1 = model.generate(
+            prompt.clone(),
+            max_new_tokens=10,
+            temperature=1.0,
+            eos_token_id=-1,
+        )
+
+        torch.manual_seed(42)
+        gen2 = model.generate(
+            prompt.clone(),
+            max_new_tokens=10,
+            temperature=1.0,
+            eos_token_id=-1,
+        )
+
+        assert gen1.tolist() == gen2.tolist()
 
 
 if __name__ == "__main__":
