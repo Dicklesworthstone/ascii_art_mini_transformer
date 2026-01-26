@@ -601,23 +601,75 @@ def validate_export(export_dir: str | Path) -> bool:
     # Load and validate weights
     weights = load_file(export_dir / "model.safetensors")
 
-    # Check embedding shapes
-    if "token_embedding.weight" in weights:
-        emb_shape = weights["token_embedding.weight"].shape
-        expected_shape = (config["vocab_size"], config["n_embd"])
-        if emb_shape != expected_shape:
+    # Validate core config values.
+    for key in required_keys:
+        value = config[key]
+        if not isinstance(value, int):
+            raise ValueError(f"Config key {key!r} must be an int, got {type(value)}")
+        if value <= 0:
+            raise ValueError(f"Config key {key!r} must be > 0, got {value}")
+
+    if config["n_embd"] % config["n_head"] != 0:
+        raise ValueError(
+            "Invalid config: n_embd must be divisible by n_head "
+            f"(n_embd={config['n_embd']}, n_head={config['n_head']})"
+        )
+
+    # Enforce that we did not accidentally export attention mask buffers.
+    mask_keys = [k for k in weights.keys() if k.endswith(".mask")]
+    if mask_keys:
+        raise ValueError(
+            "Exported weights unexpectedly contain attention mask buffers. "
+            f"Example keys: {mask_keys[:5]}"
+        )
+
+    def expect_tensor(name: str, expected_shape: tuple[int, ...]) -> None:
+        if name not in weights:
+            raise ValueError(f"Missing required tensor: {name}")
+        got = tuple(weights[name].shape)
+        if got != expected_shape:
             raise ValueError(
-                f"Token embedding shape mismatch: {emb_shape} vs {expected_shape}"
+                f"Tensor shape mismatch for {name}: {got} vs {expected_shape}"
             )
 
-    # Check number of transformer blocks
-    block_count = sum(1 for k in weights if k.startswith("blocks.") and ".attn." in k)
-    block_count = (
-        block_count // 4
-    )  # 4 attention weights per block (c_attn, c_proj, etc.)
-    if block_count != config["n_layer"]:
-        # This is a heuristic check, might not be exact
-        pass  # Don't fail, just warn if checking is important
+    vocab_size = config["vocab_size"]
+    n_embd = config["n_embd"]
+    n_layer = config["n_layer"]
+
+    # Embeddings / head
+    expect_tensor("token_embedding.weight", (vocab_size, n_embd))
+    expect_tensor("lm_head.weight", (vocab_size, n_embd))
+
+    # Positional encoding (learned, split row/col dims).
+    max_rows = config.get("max_rows")
+    max_cols = config.get("max_cols")
+    row_dim = n_embd // 2
+    col_dim = n_embd - row_dim
+    learned_row = "pos_encoding.pos_encoding.row_embedding.weight"
+    learned_col = "pos_encoding.pos_encoding.col_embedding.weight"
+    if learned_row in weights or learned_col in weights:
+        if not isinstance(max_rows, int) or not isinstance(max_cols, int):
+            raise ValueError(
+                "Config missing max_rows/max_cols required for learned positional encoding"
+            )
+        expect_tensor(learned_row, (max_rows, row_dim))
+        expect_tensor(learned_col, (max_cols, col_dim))
+
+    # Final layer norm
+    expect_tensor("ln_f.weight", (n_embd,))
+    expect_tensor("ln_f.bias", (n_embd,))
+
+    # Transformer blocks: require existence and shapes for each block.
+    for i in range(n_layer):
+        prefix = f"blocks.{i}"
+        expect_tensor(f"{prefix}.ln_1.weight", (n_embd,))
+        expect_tensor(f"{prefix}.ln_1.bias", (n_embd,))
+        expect_tensor(f"{prefix}.attn.c_attn.weight", (3 * n_embd, n_embd))
+        expect_tensor(f"{prefix}.attn.c_proj.weight", (n_embd, n_embd))
+        expect_tensor(f"{prefix}.ln_2.weight", (n_embd,))
+        expect_tensor(f"{prefix}.ln_2.bias", (n_embd,))
+        expect_tensor(f"{prefix}.mlp.c_fc.weight", (4 * n_embd, n_embd))
+        expect_tensor(f"{prefix}.mlp.c_proj.weight", (n_embd, 4 * n_embd))
 
     print(f"Validation passed: {export_dir}")
     print(f"  - Config: {config['n_layer']} layers, {config['n_embd']} dims")

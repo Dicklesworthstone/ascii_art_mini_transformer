@@ -7,6 +7,7 @@ import pytest
 # Check if torch is available
 try:
     import torch
+
     TORCH_AVAILABLE = True
 except ImportError:
     TORCH_AVAILABLE = False
@@ -24,7 +25,8 @@ if TORCH_AVAILABLE:
 else:
     # Only import the non-torch function for basic testing
     import sys
-    sys.path.insert(0, '.')
+
+    sys.path.insert(0, ".")
     exec("""
 def compute_2d_positions_simple(text, newline_char='\\n'):
     row, col = 0, 0
@@ -137,10 +139,12 @@ class TestVectorizedPositionComputation:
 
     def test_batch_computation(self):
         """Batched computation should work correctly."""
-        token_ids = torch.tensor([
-            [1, 2, 7, 3, 4],
-            [1, 7, 2, 7, 3],
-        ])
+        token_ids = torch.tensor(
+            [
+                [1, 2, 7, 3, 4],
+                [1, 7, 2, 7, 3],
+            ]
+        )
         rows, cols = compute_2d_positions_vectorized(token_ids, newline_token_id=7)
 
         # First sequence: 1,2,NL,3,4 -> rows 0,0,0,1,1
@@ -166,6 +170,56 @@ class TestVectorizedPositionComputation:
 
         assert rows[0].tolist() == [0, 1, 2]
         assert cols[0].tolist() == [0, 0, 0]
+
+    def test_matches_simple_on_random_sequences(self):
+        """Vectorized computation should match the simple implementation."""
+        torch.manual_seed(0)
+        newline_id = 7
+
+        batch_size = 4
+        seq_len = 32
+
+        # Create random tokens excluding newline_id, then sprinkle newlines.
+        base = torch.randint(0, 11, (batch_size, seq_len), dtype=torch.long)
+        base = torch.where(base >= newline_id, base + 1, base)
+        is_newline = torch.rand(batch_size, seq_len) < 0.2
+        token_ids = torch.where(is_newline, torch.tensor(newline_id), base)
+
+        rows_v, cols_v = compute_2d_positions_vectorized(
+            token_ids, newline_token_id=newline_id
+        )
+
+        for i in range(batch_size):
+            text = "".join(
+                "\n" if t == newline_id else "x" for t in token_ids[i].tolist()
+            )
+            rows_s, cols_s = compute_2d_positions_simple(text)
+            assert rows_v[i].tolist() == rows_s
+            assert cols_v[i].tolist() == cols_s
+
+    def test_trailing_newline_matches_simple(self):
+        """Trailing newline should match the simple implementation."""
+        newline_id = 7
+        token_ids = torch.tensor([[1, 2, newline_id]])
+        rows_v, cols_v = compute_2d_positions_vectorized(
+            token_ids, newline_token_id=newline_id
+        )
+
+        rows_s, cols_s = compute_2d_positions_simple("xx\n")
+        assert rows_v[0].tolist() == rows_s
+        assert cols_v[0].tolist() == cols_s
+
+    def test_consecutive_newlines_match_simple(self):
+        """Consecutive newlines should match the simple implementation."""
+        newline_id = 7
+        token_ids = torch.tensor([[1, newline_id, newline_id, 2]])
+        rows_v, cols_v = compute_2d_positions_vectorized(
+            token_ids, newline_token_id=newline_id
+        )
+
+        rows_s, cols_s = compute_2d_positions_simple("x\n\nx")
+        assert rows_v[0].tolist() == rows_s
+        assert cols_v[0].tolist() == cols_s
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not installed")
@@ -208,9 +262,12 @@ class TestLearnedPositionalEncoding2D:
         rows = torch.tensor([[100]])  # Beyond max
         cols = torch.tensor([[100]])
 
-        # Should not error, should clamp to max-1
-        output = encoding(rows, cols)
-        assert output.shape == (1, 1, 64)
+        # Should not error, should clamp to max-1.
+        output_clamped = encoding(rows, cols)
+        output_max = encoding(torch.tensor([[9]]), torch.tensor([[9]]))
+
+        assert output_clamped.shape == (1, 1, 64)
+        assert torch.allclose(output_clamped, output_max)
 
 
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="torch not installed")
@@ -286,5 +343,5 @@ class TestFactoryFunction:
         assert output.shape == (1, 3, 128)
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v'])
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

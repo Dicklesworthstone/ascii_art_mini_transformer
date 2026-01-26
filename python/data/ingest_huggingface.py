@@ -58,7 +58,7 @@ def retry_on_lock(
         except sqlite3.OperationalError as exc:
             if "locked" not in str(exc).lower() or attempt >= max_retries - 1:
                 raise
-            delay = min(base_delay * (2 ** attempt), max_delay)
+            delay = min(base_delay * (2**attempt), max_delay)
             logger.debug(
                 "SQLite locked; retrying in %.2fs (attempt %d/%d)",
                 delay,
@@ -260,7 +260,10 @@ def _csplk_looks_like_art_line(line: str) -> bool:
         return False
     if _csplk_is_separator_line(text):
         return False
-    if any(ch in text for ch in ("\\", "/", "|", "_", "(", ")", "[", "]", "{", "}", "<", ">")):
+    if any(
+        ch in text
+        for ch in ("\\", "/", "|", "_", "(", ")", "[", "]", "{", "}", "<", ">")
+    ):
         return True
     # Lines with very low charset variety (after stripping) are often part of big ASCII banners,
     # even if they contain only alnum + spaces (e.g. "            XX").
@@ -391,7 +394,11 @@ def _iter_csplk_blocks(
             current_title = None
             continue
 
-        if not block_lines and current_title is None and not _csplk_looks_like_art_line(line):
+        if (
+            not block_lines
+            and current_title is None
+            and not _csplk_looks_like_art_line(line)
+        ):
             # Preamble text before the first art block in a file.
             continue
 
@@ -401,6 +408,7 @@ def _iter_csplk_blocks(
     flushed = flush(last_idx)
     if flushed is not None:
         yield flushed
+
 
 def load_mrzjy_dataset() -> Iterable[dict[str, Any]]:
     """
@@ -434,6 +442,17 @@ def extract_art_text(row: dict[str, Any], source: str) -> Optional[str]:
 
     Different datasets have different column names and formats.
     """
+
+    def _decode_newline_escapes(text: str) -> str:
+        # Some dataset rows store newline escapes literally (e.g. "\\n") instead of real newlines.
+        # Decode newline escapes and escaped backslashes, but avoid interpreting other escape sequences.
+        return (
+            text.replace("\\r\\n", "\n")
+            .replace("\\r", "\n")
+            .replace("\\n", "\n")
+            .replace("\\\\", "\\")
+        )
+
     # Handle mrzjy conversation format
     if source == "mrzjy/ascii_art_generation_140k":
         if "conversations" in row and row["conversations"]:
@@ -446,12 +465,14 @@ def extract_art_text(row: dict[str, Any], source: str) -> Optional[str]:
                     if "```" in content:
                         parts = content.split("```")
                         if len(parts) >= 2:
-                            art = parts[1].strip()
-                            if art:
+                            art = _decode_newline_escapes(parts[1]).strip("\r\n")
+                            if art.strip():
                                 return art
                     # If no backticks, use content directly
-                    elif content.strip():
-                        return content.strip()
+                    else:
+                        candidate = _decode_newline_escapes(content).strip()
+                        if candidate:
+                            return candidate
         return None
 
     # Handle jdpressman dataset with art_aic/art_i2a columns
@@ -614,7 +635,9 @@ def ingest_dataset(
 
         if dataset_name == "Csplk/THE.ASCII.ART.EMPORIUM":
             ds = load_dataset(dataset_name, config, split="train", streaming=True)
-            progress_bar = tqdm(total=None, desc=f"Ingesting {dataset_name}", initial=start_row)
+            progress_bar = tqdm(
+                total=None, desc=f"Ingesting {dataset_name}", initial=start_row
+            )
             last_progress_idx = start_row
             last_checkpoint_idx = start_row
 
@@ -666,7 +689,10 @@ def ingest_dataset(
                     progress_bar.close()
                     return stats
 
-                if line_idx > last_checkpoint_idx and (line_idx - last_checkpoint_idx) >= checkpoint_every:
+                if (
+                    line_idx > last_checkpoint_idx
+                    and (line_idx - last_checkpoint_idx) >= checkpoint_every
+                ):
                     retry_on_lock(conn.commit)
                     retry_on_lock(lambda: conn.execute("BEGIN"))
                     tracker.update_progress(full_name, line_idx)
@@ -679,7 +705,9 @@ def ingest_dataset(
 
                     if stop_at_total_rows is not None:
                         total = retry_on_lock(
-                            lambda: conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
+                            lambda: conn.execute(
+                                "SELECT COUNT(*) FROM ascii_art"
+                            ).fetchone()[0]
                         )
                         if total >= stop_at_total_rows:
                             logger.info(
@@ -713,7 +741,9 @@ def ingest_dataset(
             # Get approximate size for progress bar if available
             total_rows = None
             try:
-                ds_info = load_dataset(dataset_name, config, split="train", streaming=False)
+                ds_info = load_dataset(
+                    dataset_name, config, split="train", streaming=False
+                )
                 total_rows = len(ds_info)
                 del ds_info  # Free memory
             except Exception:
@@ -804,10 +834,14 @@ def ingest_dataset(
 def get_db_stats(conn: sqlite3.Connection) -> dict[str, Any]:
     """Get database statistics."""
     total = conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0]
-    valid = conn.execute("SELECT COUNT(*) FROM ascii_art WHERE is_valid = 1").fetchone()[0]
+    valid = conn.execute(
+        "SELECT COUNT(*) FROM ascii_art WHERE is_valid = 1"
+    ).fetchone()[0]
 
     sources = dict(
-        conn.execute("SELECT source, COUNT(*) FROM ascii_art GROUP BY source").fetchall()
+        conn.execute(
+            "SELECT source, COUNT(*) FROM ascii_art GROUP BY source"
+        ).fetchall()
     )
 
     return {"total": total, "valid": valid, "sources": sources}
@@ -906,7 +940,9 @@ def main():
     """Main entry point for HuggingFace ingestion."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="Ingest HuggingFace ASCII art datasets")
+    parser = argparse.ArgumentParser(
+        description="Ingest HuggingFace ASCII art datasets"
+    )
     parser.add_argument(
         "--db-path",
         default="data/ascii_art.db",
