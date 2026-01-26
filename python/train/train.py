@@ -305,14 +305,15 @@ def evaluate(
 
         input_ids = batch["input_ids"].to(config.device)
         labels = batch["labels"].to(config.device)
-        attention_mask = batch["attention_mask"].to(config.device)
+        # For our right-padded batches, causal masking already prevents attending to padding.
+        # Omitting `attention_mask` also enables the SDPA fast-path in attention (lower memory).
 
         # Match training behavior: only autocast on CUDA when using a reduced-precision dtype.
         if use_amp:
             with torch.amp.autocast(device_type=device_type, dtype=dtype):
-                _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
+                _, loss = model(input_ids, labels=labels)
         else:
-            _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
+            _, loss = model(input_ids, labels=labels)
 
         if loss is not None:
             losses.append(loss.item())
@@ -453,17 +454,16 @@ def train(
 
             input_ids = batch["input_ids"].to(config.device)
             labels = batch["labels"].to(config.device)
-            attention_mask = batch["attention_mask"].to(config.device)
+            # For our right-padded batches, causal masking already prevents attending to padding.
+            # Omitting `attention_mask` also enables the SDPA fast-path in attention (lower memory).
 
             # Forward pass with mixed precision
             if use_amp:
                 with torch.amp.autocast(device_type=device_type, dtype=dtype):
-                    _, loss = model(
-                        input_ids, attention_mask=attention_mask, labels=labels
-                    )
+                    _, loss = model(input_ids, labels=labels)
                     loss = loss / config.gradient_accumulation_steps
             else:
-                _, loss = model(input_ids, attention_mask=attention_mask, labels=labels)
+                _, loss = model(input_ids, labels=labels)
                 loss = loss / config.gradient_accumulation_steps
 
             # Backward pass

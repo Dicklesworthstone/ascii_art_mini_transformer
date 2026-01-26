@@ -147,32 +147,22 @@ class CausalSelfAttention(nn.Module):
         # Compute attention scores
         # Prefer PyTorch scaled-dot-product attention when available to avoid materializing
         # the full (T, T) attention matrix (important for memory at large block sizes).
-        if hasattr(F, "scaled_dot_product_attention"):
-            if attention_mask is not None:
-                # For causal models with right-padding, an explicit padding mask is unnecessary:
-                # earlier tokens never attend to later (padded) positions. SDPA in our PyTorch
-                # version errors if both `attn_mask` and `is_causal=True` are set, so we:
-                # - detect right-padding-only masks and ignore them (fast path)
-                # - fall back to the explicit attention implementation for non-right-padding masks
-                attn_keep = attention_mask.bool()
-                has_false_to_true = bool(
-                    (attn_keep[:, 1:] & ~attn_keep[:, :-1]).any().item()
-                )
-                if not has_false_to_true:
-                    attention_mask = None
-
-            if attention_mask is None:
-                y = F.scaled_dot_product_attention(
-                    q,
-                    k,
-                    v,
-                    attn_mask=None,
-                    dropout_p=self.dropout if self.training else 0.0,
-                    is_causal=True,
-                )
-                y = y.transpose(1, 2).contiguous().view(B, T, C)
-                y = self.resid_dropout(self.c_proj(y))
-                return y
+        #
+        # Note: our PyTorch version rejects providing both `attn_mask` and `is_causal=True`.
+        # For the common right-padding case, callers can omit `attention_mask` entirely because
+        # causal masking already prevents earlier tokens from attending to later padded positions.
+        if hasattr(F, "scaled_dot_product_attention") and attention_mask is None:
+            y = F.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=self.dropout if self.training else 0.0,
+                is_causal=True,
+            )
+            y = y.transpose(1, 2).contiguous().view(B, T, C)
+            y = self.resid_dropout(self.c_proj(y))
+            return y
 
         # Fallback: explicit attention matrix (older PyTorch).
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
