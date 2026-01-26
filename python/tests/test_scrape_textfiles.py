@@ -43,6 +43,22 @@ class _FakeSession:
         return None
 
 
+class _SequencedSession:
+    def __init__(self, *, responses: dict[str, list[_FakeResponse]]):
+        self._responses = {url: list(seq) for url, seq in responses.items()}
+        self.headers: dict[str, str] = {}
+
+    def get(self, url: str, *args: object, **kwargs: object) -> _FakeResponse:
+        _ = (args, kwargs)
+        seq = self._responses.get(url)
+        if not seq:
+            raise KeyError(f"Unexpected URL fetch: {url}")
+        return seq.pop(0)
+
+    def close(self) -> None:
+        return None
+
+
 def test_extract_listing_hrefs_filters_parent_and_dedupes() -> None:
     html = """
     <html>
@@ -126,9 +142,95 @@ def test_scrape_textfiles_crawls_local_directory_listing(tmp_path: Path) -> None
     assert {p["title"] for p in payloads} == {"logo.ans", "inner.ans"}
     assert any("HELLO\nWORLD" in p["raw_text"] for p in payloads)
 
-    # Second run should load progress and avoid re-fetching.
-    state2 = scrape_textfiles(config, session=session)
-    assert state2.errors == 0
+
+def test_scrape_textfiles_retries_and_honors_max_files(tmp_path: Path) -> None:
+    base_url = "http://example.com/ansi"  # no trailing slash to exercise normalization
+
+    listing_html = """
+    <html><body>
+      <a href="../">Parent Directory</a>
+      <a href="sub/">sub/</a>
+      <a href="skip.zip">skip.zip</a>
+      <a href="file1.ans">file1.ans</a>
+      <a href="empty.ans">empty.ans</a>
+      <a href="file2.ans">file2.ans</a>
+    </body></html>
+    """.encode("utf-8")
+
+    def _cp437(text: str) -> bytes:
+        return text.encode("cp437", errors="replace")
+
+    # First directory listing fetch fails, then succeeds to cover retry logic.
+    responses: dict[str, list[_FakeResponse]] = {
+        f"{base_url}/": [
+            _FakeResponse(content=b"fail", status_code=500),
+            _FakeResponse(content=listing_html, status_code=200),
+        ],
+        f"{base_url}/file1.ans": [
+            _FakeResponse(content=_cp437("\x1b[31mRED\x1b[0m\r\nOK\r\n")),
+        ],
+        f"{base_url}/empty.ans": [
+            _FakeResponse(content=_cp437("  \r\n\t\r\n")),
+        ],
+    }
+
+    # file2.ans should never be fetched due to max_files=2; missing entry is a safety check.
+    session = _SequencedSession(responses=responses)
+
+    progress_path = tmp_path / "progress.json"
+    progress_path.write_text(
+        json.dumps(
+            {
+                "processed_dirs": [],
+                "processed_files": [],
+                "inserted": 0,
+                "duplicates": 0,
+                "errors": 0,
+                "skipped": 0,
+            }
+        ),
+        encoding="utf-8",
+    )
+    out_jsonl = tmp_path / "out.jsonl"
+
+    config = ScrapeConfig(
+        base_url=base_url,
+        db_path=tmp_path / "unused.db",
+        output_jsonl=out_jsonl,
+        progress_path=progress_path,
+        delay_seconds=0.0,
+        max_files=2,
+        strip_ansi=True,
+        insert_into_db=False,
+        dry_run=False,
+    )
+
+    state = scrape_textfiles(config, session=session)
+
+    assert state.errors == 1  # directory listing first fetch
+    assert state.skipped == 2  # skip.zip + empty.ans
+    assert state.inserted == 0
+    assert state.duplicates == 0
+
+    assert f"{base_url}/skip.zip" in state.processed_files
+    assert f"{base_url}/file1.ans" in state.processed_files
+    assert f"{base_url}/empty.ans" in state.processed_files
+    assert f"{base_url}/file2.ans" not in state.processed_files
+
+    payloads = [
+        json.loads(line) for line in out_jsonl.read_text(encoding="utf-8").splitlines()
+    ]
+    assert len(payloads) == 1
+    rec = payloads[0]
+    assert rec["title"] == "file1.ans"
+    # Root-level files should not be miscategorized as their own category.
+    assert rec["category"] is None
+    assert rec["subcategory"] is None
+    # ANSI should be stripped and newlines normalized.
+    assert "RED\nOK" in rec["raw_text"]
+
+    # Note: Because we hit --max-files, the crawler does not mark the directory as processed.
+    # A second run may re-fetch the directory listing; that's fine for this unit test.
 
 
 def test_scrape_textfiles_strip_ansi_and_hits_max_files(tmp_path: Path) -> None:

@@ -169,10 +169,13 @@ def _path_category_parts(
         return None, None
     rel = parsed.path[len(base.path) :]
     parts = [p for p in rel.split("/") if p]
+    # Drop the filename component (scrape_textfiles calls this for file URLs).
+    if parts and not url.endswith("/"):
+        parts = parts[:-1]
     if not parts:
         return None, None
     category = parts[0]
-    subcategory = parts[1] if len(parts) > 2 else None
+    subcategory = parts[1] if len(parts) > 1 else None
     return category, subcategory
 
 

@@ -16,6 +16,7 @@ The pipeline handles:
 from __future__ import annotations
 
 import functools
+import atexit
 import os
 import random
 import sqlite3
@@ -111,6 +112,10 @@ class AsciiArtDataset(Dataset[Batch]):
     def __getstate__(self) -> dict[str, object]:
         # sqlite3.Connection is not pickleable. Ensure DataLoader worker processes can
         # serialize the dataset even if it was used before for debugging.
+        #
+        # Close any cached connection before pickling to avoid leaking a connection in the
+        # parent process when DataLoader forks/spawns workers.
+        self.close()
         state = self.__dict__.copy()
         state["_conn"] = None
         state["_conn_pid"] = None
@@ -136,6 +141,9 @@ class AsciiArtDataset(Dataset[Batch]):
             if self._conn is not None:
                 self._conn.close()
             conn = sqlite3.connect(self.db_path)
+            # Ensure the connection is closed when the process exits (e.g., DataLoader workers).
+            # This prevents noisy ResourceWarnings when training/tests finish.
+            atexit.register(conn.close)
             # Defensive: prevent accidental writes from training code.
             try:
                 conn.execute("PRAGMA query_only = 1;")
