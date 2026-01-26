@@ -25,6 +25,12 @@ def test_export_cli_fresh_model_overrides_config(tmp_path: Path) -> None:
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo_root / "python")
+    # Keep the subprocess lightweight and reliable in constrained CI/containers.
+    env["OMP_NUM_THREADS"] = "1"
+    env["MKL_NUM_THREADS"] = "1"
+    env["OPENBLAS_NUM_THREADS"] = "1"
+    env["VECLIB_MAXIMUM_THREADS"] = "1"
+    env["NUMEXPR_NUM_THREADS"] = "1"
 
     subprocess.run(
         [
@@ -61,4 +67,3 @@ def test_export_cli_fresh_model_overrides_config(tmp_path: Path) -> None:
     assert cfg["n_head"] == 2
     assert cfg["n_embd"] == 64
     assert cfg["block_size"] == 128
-

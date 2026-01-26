@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from python.data.generate_figlet import (
     COMMON_WORDS,
@@ -23,6 +23,11 @@ from python.data.generate_figlet import (
     discover_fonts,
     is_valid_output,
 )
+
+
+def _make_temp_dir(prefix: str) -> Path:
+    # Project policy forbids auto-deleting temp dirs from tests.
+    return Path(tempfile.mkdtemp(prefix=prefix))
 
 
 class TestWordList(unittest.TestCase):
@@ -149,80 +154,75 @@ class TestDiscoverFonts(unittest.TestCase):
 
     def test_empty_directory_returns_empty_list(self) -> None:
         """Empty directory should return empty list."""
-        with TemporaryDirectory() as tmpdir:
-            result = discover_fonts(Path(tmpdir))
-            self.assertEqual(result, [])
+        tmpdir = _make_temp_dir("ascii_figlet_fonts_empty_")
+        result = discover_fonts(tmpdir)
+        self.assertEqual(result, [])
 
     def test_finds_flf_files(self) -> None:
         """Should find .flf files in directory."""
-        with TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-            # Create some .flf files
-            (tmppath / "font1.flf").touch()
-            (tmppath / "font2.flf").touch()
+        tmppath = _make_temp_dir("ascii_figlet_fonts_flf_")
+        # Create some .flf files
+        (tmppath / "font1.flf").touch()
+        (tmppath / "font2.flf").touch()
 
-            result = discover_fonts(tmppath)
-            self.assertEqual(len(result), 2)
+        result = discover_fonts(tmppath)
+        self.assertEqual(len(result), 2)
 
     def test_ignores_non_flf_files(self) -> None:
         """Should ignore non-.flf files."""
-        with TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-            (tmppath / "font.flf").touch()
-            (tmppath / "readme.txt").touch()
-            (tmppath / "font.ttf").touch()
+        tmppath = _make_temp_dir("ascii_figlet_fonts_ignore_")
+        (tmppath / "font.flf").touch()
+        (tmppath / "readme.txt").touch()
+        (tmppath / "font.ttf").touch()
 
-            result = discover_fonts(tmppath)
-            self.assertEqual(len(result), 1)
-            self.assertEqual(result[0].name, "font.flf")
+        result = discover_fonts(tmppath)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0].name, "font.flf")
 
     def test_finds_fonts_in_subdirectories(self) -> None:
         """Should recursively find .flf files in subdirectories."""
-        with TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-            # Create subdirectory structure
-            subdir1 = tmppath / "contrib"
-            subdir2 = tmppath / "contrib" / "nested"
-            subdir1.mkdir()
-            subdir2.mkdir()
+        tmppath = _make_temp_dir("ascii_figlet_fonts_subdirs_")
+        # Create subdirectory structure
+        subdir1 = tmppath / "contrib"
+        subdir2 = tmppath / "contrib" / "nested"
+        subdir1.mkdir()
+        subdir2.mkdir()
 
-            (tmppath / "root.flf").touch()
-            (subdir1 / "contrib1.flf").touch()
-            (subdir2 / "nested.flf").touch()
+        (tmppath / "root.flf").touch()
+        (subdir1 / "contrib1.flf").touch()
+        (subdir2 / "nested.flf").touch()
 
-            result = discover_fonts(tmppath)
-            self.assertEqual(len(result), 3)
+        result = discover_fonts(tmppath)
+        self.assertEqual(len(result), 3)
 
     def test_returns_sorted_list(self) -> None:
         """Should return fonts sorted by path."""
-        with TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-            # Create fonts in non-alphabetical order
-            (tmppath / "zebra.flf").touch()
-            (tmppath / "alpha.flf").touch()
-            (tmppath / "beta.flf").touch()
+        tmppath = _make_temp_dir("ascii_figlet_fonts_sorted_")
+        # Create fonts in non-alphabetical order
+        (tmppath / "zebra.flf").touch()
+        (tmppath / "alpha.flf").touch()
+        (tmppath / "beta.flf").touch()
 
-            result = discover_fonts(tmppath)
-            names = [p.name for p in result]
-            self.assertEqual(names, ["alpha.flf", "beta.flf", "zebra.flf"])
+        result = discover_fonts(tmppath)
+        names = [p.name for p in result]
+        self.assertEqual(names, ["alpha.flf", "beta.flf", "zebra.flf"])
 
     def test_returns_path_objects(self) -> None:
         """Should return Path objects, not strings."""
-        with TemporaryDirectory() as tmpdir:
-            tmppath = Path(tmpdir)
-            (tmppath / "font.flf").touch()
+        tmppath = _make_temp_dir("ascii_figlet_fonts_paths_")
+        (tmppath / "font.flf").touch()
 
-            result = discover_fonts(tmppath)
-            self.assertEqual(len(result), 1)
-            self.assertIsInstance(result[0], Path)
+        result = discover_fonts(tmppath)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], Path)
 
     def test_handles_nonexistent_directory(self) -> None:
         """Non-existent directory should return empty list (rglob behavior)."""
-        with TemporaryDirectory() as tmpdir:
-            nonexistent = Path(tmpdir) / "nonexistent"
-            # pathlib rglob on non-existent dir returns empty generator
-            result = discover_fonts(nonexistent)
-            self.assertEqual(result, [])
+        tmpdir = _make_temp_dir("ascii_figlet_fonts_nonexistent_")
+        nonexistent = tmpdir / "nonexistent"
+        # pathlib rglob on non-existent dir returns empty generator
+        result = discover_fonts(nonexistent)
+        self.assertEqual(result, [])
 
 
 class TestFigletIntegration(unittest.TestCase):

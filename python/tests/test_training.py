@@ -883,6 +883,22 @@ class TestLearningRateSchedule:
             "Should return learning_rate when decay_range=0"
         )
 
+    def test_lr_decay_iters_before_warmup_is_handled(self):
+        """lr_decay_iters < warmup_iters should not error and should clamp post-decay to min_lr."""
+        config = TrainingConfig(
+            learning_rate=6e-4,
+            min_lr=6e-5,
+            warmup_iters=100,
+            lr_decay_iters=50,  # Before warmup ends (misconfigured but should be safe)
+        )
+
+        # During warmup, we still linearly increase.
+        assert get_lr(0, config) == 0.0
+        assert get_lr(50, config) == pytest.approx(3e-4)
+
+        # Once warmup completes, we are past lr_decay_iters, so LR should be at min_lr.
+        assert get_lr(100, config) == pytest.approx(config.min_lr)
+
 
 class TestCheckpointing:
     """Tests for checkpoint save/load."""
@@ -906,6 +922,32 @@ class TestCheckpointing:
         )
 
         assert ckpt_path.exists(), "Checkpoint file should exist"
+        checkpoint = torch.load(str(ckpt_path), weights_only=True, map_location="cpu")
+        assert isinstance(checkpoint, dict)
+        assert set(checkpoint) >= {
+            "model",
+            "optimizer",
+            "iter_num",
+            "best_val_loss",
+            "model_config",
+            "training_config",
+        }
+        assert checkpoint["iter_num"] == 100
+        assert checkpoint["best_val_loss"] == pytest.approx(0.5)
+        assert isinstance(checkpoint["model"], dict)
+        assert isinstance(checkpoint["optimizer"], dict)
+
+        model_cfg = checkpoint["model_config"]
+        assert isinstance(model_cfg, dict)
+        assert model_cfg["n_layer"] == model_config.n_layer
+        assert model_cfg["n_head"] == model_config.n_head
+        assert model_cfg["n_embd"] == model_config.n_embd
+        assert model_cfg["block_size"] == model_config.block_size
+
+        train_cfg = checkpoint["training_config"]
+        assert isinstance(train_cfg, dict)
+        assert train_cfg["learning_rate"] == pytest.approx(config.learning_rate)
+        assert train_cfg["warmup_iters"] == config.warmup_iters
 
     def test_load_checkpoint(self, tmp_path):
         """Test that checkpoint loads correctly."""
@@ -914,6 +956,23 @@ class TestCheckpointing:
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
         config = TrainingConfig(checkpoint_dir=str(tmp_path))
+
+        # Ensure optimizer has non-empty state (tensors) to verify restore/device placement.
+        torch.manual_seed(0)
+        input_ids = torch.randint(0, model_config.vocab_size, (1, 16), dtype=torch.long)
+        labels = torch.randint(0, model_config.vocab_size, (1, 16), dtype=torch.long)
+        _, loss = model(input_ids, labels=labels)
+        assert loss is not None
+        loss.backward()
+        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+
+        params = list(model.parameters())
+        assert params, "Expected model parameters"
+        state0 = optimizer.state[params[0]]
+        assert "exp_avg" in state0 and "exp_avg_sq" in state0
+        exp_avg0 = state0["exp_avg"].clone()
+        exp_avg_sq0 = state0["exp_avg_sq"].clone()
 
         # Save
         ckpt_path = tmp_path / "test_ckpt.pt"
@@ -935,6 +994,18 @@ class TestCheckpointing:
 
         assert iter_num == 100, "Iter num should be restored"
         assert best_val_loss == 0.5, "Best val loss should be restored"
+
+        params2 = list(model2.parameters())
+        state0_2 = optimizer2.state[params2[0]]
+        assert torch.equal(state0_2["exp_avg"], exp_avg0)
+        assert torch.equal(state0_2["exp_avg_sq"], exp_avg_sq0)
+
+        # Optimizer state tensors should live on model device.
+        device = next(model2.parameters()).device
+        for state in optimizer2.state.values():
+            for value in state.values():
+                if isinstance(value, torch.Tensor):
+                    assert value.device == device
 
     def test_checkpoint_weights_match(self, tmp_path):
         """Test that loaded weights match saved weights."""
