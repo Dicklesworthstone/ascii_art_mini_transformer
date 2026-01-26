@@ -1,6 +1,13 @@
 """
 SQLite database module for ASCII art storage and retrieval.
 
+.. deprecated::
+    This module is DEPRECATED. Use ``python.data.db`` instead, which is the
+    canonical database layer and uses the external schema at ``data/schema.sql``.
+
+    This module remains for backward compatibility with ``test_database.py``
+    tests but should not be used in new code. See bead bd-1xt for context.
+
 This module implements the database schema and utility functions for:
 - Storing ASCII art with rich metadata
 - Content-based deduplication via SHA256 hashing
@@ -18,7 +25,7 @@ from typing import Optional
 
 
 # Character set classification patterns
-ANSI_ESCAPE_PATTERN = re.compile(r'\x1b\[[0-9;]*[mGKHF]')
+ANSI_ESCAPE_PATTERN = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
 BOX_DRAWING_RANGE = range(0x2500, 0x2580)
 BLOCK_ELEMENT_RANGE = range(0x2580, 0x25A0)
 
@@ -26,6 +33,7 @@ BLOCK_ELEMENT_RANGE = range(0x2580, 0x25A0)
 @dataclass
 class AsciiArt:
     """Data class representing an ASCII art piece with metadata."""
+
     id: Optional[int]
     content_hash: str
     raw_text: str
@@ -53,7 +61,7 @@ class AsciiArt:
 
 def compute_content_hash(text: str) -> str:
     """Compute SHA256 hash of content for deduplication."""
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def compute_metrics(text: str) -> dict:
@@ -64,7 +72,7 @@ def compute_metrics(text: str) -> dict:
     char_density, charset, char_histogram, uses_box_drawing,
     uses_block_chars, has_ansi_codes
     """
-    lines = text.split('\n')
+    lines = text.split("\n")
     height = len(lines)
     width = max(len(line) for line in lines) if lines else 0
     total_chars = len(text)
@@ -83,32 +91,32 @@ def compute_metrics(text: str) -> dict:
     has_ansi = bool(ANSI_ESCAPE_PATTERN.search(text))
     uses_box_drawing = False
     uses_block_chars = False
-    charset = 'ascii'
+    charset = "ascii"
 
     for char in text:
         code = ord(char)
         if code > 127:
-            charset = 'unicode'
+            charset = "unicode"
             if code in BOX_DRAWING_RANGE:
                 uses_box_drawing = True
             elif code in BLOCK_ELEMENT_RANGE:
                 uses_block_chars = True
         elif code > 126 or (code < 32 and code not in (9, 10, 13)):
             # Extended ASCII (excluding tab, newline, carriage return)
-            if charset == 'ascii':
-                charset = 'extended'
+            if charset == "ascii":
+                charset = "extended"
 
     return {
-        'width': width,
-        'height': height,
-        'total_chars': total_chars,
-        'non_space_chars': non_space_chars,
-        'char_density': char_density,
-        'charset': charset,
-        'char_histogram': char_histogram,
-        'uses_box_drawing': uses_box_drawing,
-        'uses_block_chars': uses_block_chars,
-        'has_ansi_codes': has_ansi,
+        "width": width,
+        "height": height,
+        "total_chars": total_chars,
+        "non_space_chars": non_space_chars,
+        "char_density": char_density,
+        "charset": charset,
+        "char_histogram": char_histogram,
+        "uses_box_drawing": uses_box_drawing,
+        "uses_block_chars": uses_block_chars,
+        "has_ansi_codes": has_ansi,
     }
 
 
@@ -123,9 +131,9 @@ def validate_art(text: str, metrics: dict) -> bool:
     """
     if not text or not text.strip():
         return False
-    if metrics['height'] < 3:
+    if metrics["height"] < 3:
         return False
-    if metrics['height'] > 500:
+    if metrics["height"] > 500:
         return False
     return True
 
@@ -258,8 +266,7 @@ class AsciiArtDatabase:
 
         # Check for duplicate
         existing = self.conn.execute(
-            "SELECT id FROM ascii_art WHERE content_hash = ?",
-            (content_hash,)
+            "SELECT id FROM ascii_art WHERE content_hash = ?", (content_hash,)
         ).fetchone()
         if existing:
             return None  # Duplicate
@@ -288,19 +295,19 @@ class AsciiArtDatabase:
                 subcategory,
                 json.dumps(tags) if tags else None,
                 artist,
-                metrics['width'],
-                metrics['height'],
-                metrics['total_chars'],
-                metrics['non_space_chars'],
-                metrics['char_density'],
-                metrics['charset'],
-                json.dumps(metrics['char_histogram']),
-                int(metrics['uses_box_drawing']),
-                int(metrics['uses_block_chars']),
-                int(metrics['has_ansi_codes']),
+                metrics["width"],
+                metrics["height"],
+                metrics["total_chars"],
+                metrics["non_space_chars"],
+                metrics["char_density"],
+                metrics["charset"],
+                json.dumps(metrics["char_histogram"]),
+                int(metrics["uses_box_drawing"]),
+                int(metrics["uses_block_chars"]),
+                int(metrics["has_ansi_codes"]),
                 int(is_valid),
                 quality_score,
-            )
+            ),
         )
         self.conn.commit()
         return cursor.lastrowid
@@ -308,16 +315,14 @@ class AsciiArtDatabase:
     def get_by_id(self, art_id: int) -> Optional[AsciiArt]:
         """Retrieve an ASCII art piece by ID."""
         row = self.conn.execute(
-            "SELECT * FROM ascii_art WHERE id = ?",
-            (art_id,)
+            "SELECT * FROM ascii_art WHERE id = ?", (art_id,)
         ).fetchone()
         return self._row_to_ascii_art(row) if row else None
 
     def get_by_hash(self, content_hash: str) -> Optional[AsciiArt]:
         """Retrieve an ASCII art piece by content hash."""
         row = self.conn.execute(
-            "SELECT * FROM ascii_art WHERE content_hash = ?",
-            (content_hash,)
+            "SELECT * FROM ascii_art WHERE content_hash = ?", (content_hash,)
         ).fetchone()
         return self._row_to_ascii_art(row) if row else None
 
@@ -335,7 +340,7 @@ class AsciiArtDatabase:
             ORDER BY rank
             LIMIT ?
             """,
-            (query, limit)
+            (query, limit),
         ).fetchall()
         return [self._row_to_ascii_art(row) for row in rows]
 
@@ -366,8 +371,7 @@ class AsciiArtDatabase:
 
         where_clause = " AND ".join(conditions)
         rows = self.conn.execute(
-            f"SELECT * FROM ascii_art WHERE {where_clause} LIMIT ?",
-            params + [limit]
+            f"SELECT * FROM ascii_art WHERE {where_clause} LIMIT ?", params + [limit]
         ).fetchall()
         return [self._row_to_ascii_art(row) for row in rows]
 
@@ -385,7 +389,7 @@ class AsciiArtDatabase:
                 WHERE category = ? AND subcategory = ? AND is_valid = 1
                 LIMIT ?
                 """,
-                (category, subcategory, limit)
+                (category, subcategory, limit),
             ).fetchall()
         else:
             rows = self.conn.execute(
@@ -394,7 +398,7 @@ class AsciiArtDatabase:
                 WHERE category = ? AND is_valid = 1
                 LIMIT ?
                 """,
-                (category, limit)
+                (category, limit),
             ).fetchall()
         return [self._row_to_ascii_art(row) for row in rows]
 
@@ -412,27 +416,33 @@ class AsciiArtDatabase:
         valid = self.count(valid_only=True)
 
         # Source distribution
-        sources = dict(self.conn.execute(
-            "SELECT source, COUNT(*) FROM ascii_art GROUP BY source"
-        ).fetchall())
+        sources = dict(
+            self.conn.execute(
+                "SELECT source, COUNT(*) FROM ascii_art GROUP BY source"
+            ).fetchall()
+        )
 
         # Category distribution
-        categories = dict(self.conn.execute(
-            "SELECT category, COUNT(*) FROM ascii_art WHERE category IS NOT NULL GROUP BY category"
-        ).fetchall())
+        categories = dict(
+            self.conn.execute(
+                "SELECT category, COUNT(*) FROM ascii_art WHERE category IS NOT NULL GROUP BY category"
+            ).fetchall()
+        )
 
         # Charset distribution
-        charsets = dict(self.conn.execute(
-            "SELECT charset, COUNT(*) FROM ascii_art GROUP BY charset"
-        ).fetchall())
+        charsets = dict(
+            self.conn.execute(
+                "SELECT charset, COUNT(*) FROM ascii_art GROUP BY charset"
+            ).fetchall()
+        )
 
         return {
-            'total': total,
-            'valid': valid,
-            'invalid': total - valid,
-            'sources': sources,
-            'categories': categories,
-            'charsets': charsets,
+            "total": total,
+            "valid": valid,
+            "invalid": total - valid,
+            "sources": sources,
+            "categories": categories,
+            "charsets": charsets,
         }
 
     def iterate_valid(self, batch_size: int = 1000):
@@ -450,7 +460,7 @@ class AsciiArtDatabase:
                 ORDER BY id
                 LIMIT ? OFFSET ?
                 """,
-                (batch_size, offset)
+                (batch_size, offset),
             ).fetchall()
 
             if not rows:
@@ -464,29 +474,31 @@ class AsciiArtDatabase:
     def _row_to_ascii_art(self, row: sqlite3.Row) -> AsciiArt:
         """Convert a database row to AsciiArt dataclass."""
         return AsciiArt(
-            id=row['id'],
-            content_hash=row['content_hash'],
-            raw_text=row['raw_text'],
-            source=row['source'],
-            source_id=row['source_id'],
-            title=row['title'],
-            description=row['description'],
-            category=row['category'],
-            subcategory=row['subcategory'],
-            tags=json.loads(row['tags']) if row['tags'] else None,
-            artist=row['artist'],
-            width=row['width'],
-            height=row['height'],
-            total_chars=row['total_chars'],
-            non_space_chars=row['non_space_chars'],
-            char_density=row['char_density'],
-            charset=row['charset'],
-            char_histogram=json.loads(row['char_histogram']) if row['char_histogram'] else {},
-            uses_box_drawing=bool(row['uses_box_drawing']),
-            uses_block_chars=bool(row['uses_block_chars']),
-            has_ansi_codes=bool(row['has_ansi_codes']),
-            is_valid=bool(row['is_valid']),
-            quality_score=row['quality_score'],
+            id=row["id"],
+            content_hash=row["content_hash"],
+            raw_text=row["raw_text"],
+            source=row["source"],
+            source_id=row["source_id"],
+            title=row["title"],
+            description=row["description"],
+            category=row["category"],
+            subcategory=row["subcategory"],
+            tags=json.loads(row["tags"]) if row["tags"] else None,
+            artist=row["artist"],
+            width=row["width"],
+            height=row["height"],
+            total_chars=row["total_chars"],
+            non_space_chars=row["non_space_chars"],
+            char_density=row["char_density"],
+            charset=row["charset"],
+            char_histogram=json.loads(row["char_histogram"])
+            if row["char_histogram"]
+            else {},
+            uses_box_drawing=bool(row["uses_box_drawing"]),
+            uses_block_chars=bool(row["uses_block_chars"]),
+            has_ansi_codes=bool(row["has_ansi_codes"]),
+            is_valid=bool(row["is_valid"]),
+            quality_score=row["quality_score"],
         )
 
 
@@ -499,7 +511,7 @@ if __name__ == "__main__":
     # Quick test
     import tempfile
 
-    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
         db_path = f.name
 
     print(f"Testing database at {db_path}")
@@ -513,21 +525,23 @@ if __name__ == "__main__":
 """
         art_id = db.insert(
             raw_text=test_art,
-            source='test',
-            title='Cute Cat',
-            description='A simple ASCII cat face',
-            category='animal',
-            subcategory='cat',
-            tags=['cute', 'simple', 'face'],
+            source="test",
+            title="Cute Cat",
+            description="A simple ASCII cat face",
+            category="animal",
+            subcategory="cat",
+            tags=["cute", "simple", "face"],
         )
         print(f"Inserted art with ID: {art_id}")
 
         # Retrieve and verify
         art = db.get_by_id(art_id)
-        print(f"Retrieved: {art.title}, {art.width}x{art.height}, charset={art.charset}")
+        print(
+            f"Retrieved: {art.title}, {art.width}x{art.height}, charset={art.charset}"
+        )
 
         # Test deduplication
-        dup_id = db.insert(raw_text=test_art, source='test')
+        dup_id = db.insert(raw_text=test_art, source="test")
         print(f"Duplicate insert returned: {dup_id}")
 
         # Stats

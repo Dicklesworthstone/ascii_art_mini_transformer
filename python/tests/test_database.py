@@ -1,5 +1,11 @@
 """
-Unit tests for the ASCII art database module.
+Unit tests for the legacy `python.data.database` module.
+
+`python.data.db` is the canonical database layer (external schema at `data/schema.sql`)
+and is covered by `python/tests/test_db.py` + `python/tests/test_db_schema.py`.
+
+These tests remain to document/lock down legacy behavior, but new code should not
+import or depend on `python.data.database`.
 """
 
 import tempfile
