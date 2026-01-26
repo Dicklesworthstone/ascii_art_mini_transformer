@@ -313,6 +313,18 @@ class TestSaveLoad:
         assert config['num_special_tokens'] == NUM_SPECIAL_TOKENS
         assert 'special_tokens' in config
         assert 'style_tokens' in config
+        assert 'char_to_id' in config
+
+        # Exported printable mapping should include all printable ASCII characters,
+        # including the literal '<' character (do not confuse with special tokens like "<BOS>").
+        char_to_id = config['char_to_id']
+        assert len(char_to_id) == len(PRINTABLE_ASCII)
+        assert '<' in char_to_id
+        assert char_to_id['<'] == tokenizer.encode('<')[0]
+
+        # Special tokens should only appear in the `special_tokens` section.
+        for token in SPECIAL_TOKENS:
+            assert token not in char_to_id
 
         # Intentionally do not delete temp files from tests; project policy forbids deletion.
 
