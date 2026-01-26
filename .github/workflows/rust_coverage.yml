@@ -1,0 +1,56 @@
+name: Rust Coverage
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust-coverage:
+    name: Rust coverage (llvm-cov)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        with:
+          toolchain: nightly-2026-01-20
+          components: rustfmt, clippy, llvm-tools-preview
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+        with:
+          workspaces: |
+            rust/ascii-gen -> target
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Run rust coverage (lcov)
+        run: |
+          mkdir -p rust/ascii-gen/target/llvm-cov
+          cargo llvm-cov --manifest-path rust/ascii-gen/Cargo.toml \
+            --lib \
+            --test integration \
+            --test cross_validation \
+            --lcov \
+            --output-path rust/ascii-gen/target/llvm-cov/lcov.info
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rust-coverage-${{ github.run_id }}
+          path: rust/ascii-gen/target/llvm-cov/lcov.info
+          if-no-files-found: error
+          retention-days: 14
