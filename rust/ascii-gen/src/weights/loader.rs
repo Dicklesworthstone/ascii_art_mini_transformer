@@ -61,7 +61,7 @@ pub fn try_load_embedded_model(device: &Device) -> Result<Option<AsciiGPT>> {
 /// # Errors
 /// Returns an error if the weights or config cannot be loaded.
 pub fn load_external_model(model_path: &Path, device: &Device) -> Result<AsciiGPT> {
-    let config = load_config_for_model(model_path).unwrap_or_else(|_| ModelConfig::default());
+    let config = load_config_for_model(model_path)?;
     let data = std::fs::read(model_path)
         .with_context(|| format!("read weights {}", model_path.display()))?;
     load_bytes_auto(&data, config, device, Some(model_path), None).context("load external weights")

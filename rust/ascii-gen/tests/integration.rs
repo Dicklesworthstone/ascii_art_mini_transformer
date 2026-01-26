@@ -5,6 +5,53 @@ fn crate_boots() {
 }
 
 #[test]
+fn invalid_config_json_is_not_silently_ignored() {
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let mut dir: PathBuf = std::env::temp_dir();
+    let uniq = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("timestamp")
+        .as_nanos();
+    dir.push(format!("ascii_gen_bad_cfg_{uniq}"));
+    std::fs::create_dir_all(&dir).expect("create temp dir");
+
+    // n_embd=64 is not divisible by n_head=3.
+    let bad_cfg = r#"{
+  "block_size": 16,
+  "vocab_size": 107,
+  "n_layer": 2,
+  "n_head": 3,
+  "n_embd": 64,
+  "max_rows": 100,
+  "max_cols": 200,
+  "newline_token_id": 7,
+  "pad_token_id": 0,
+  "bos_token_id": 1,
+  "eos_token_id": 2
+}"#;
+    std::fs::write(dir.join("config.json"), bad_cfg).expect("write config.json");
+
+    let model_path = dir.join("model.safetensors");
+    let device = candle_core::Device::Cpu;
+    let err = ascii_gen::weights::loader::load_external_model(&model_path, &device)
+        .err()
+        .expect("invalid config.json must error");
+
+    assert!(
+        err.chain()
+            .any(|e| e.to_string().contains("invalid ModelConfig")),
+        "unexpected error chain: {err:?}"
+    );
+    assert!(
+        err.chain()
+            .any(|e| e.to_string().contains("n_embd must be divisible by n_head")),
+        "unexpected error chain: {err:?}"
+    );
+}
+
+#[test]
 #[cfg(not(feature = "embedded-weights"))]
 fn embedded_weights_reports_unavailable_when_feature_disabled() {
     assert!(!ascii_gen::weights::loader::embedded_available());
