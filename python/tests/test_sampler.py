@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from inference.sampler import TopKSampler, TopPSampler, sample_next_token
+from python.inference.sampler import TopKSampler, TopPSampler, sample_next_token
 
 
 class TestTopKSampler:
@@ -78,15 +78,21 @@ class TestTopKSampler:
         logits = torch.tensor([0.0, 5.0, 0.0])
 
         low_temp_samples = [low_temp_sampler.sample(logits.clone()) for _ in range(100)]
-        high_temp_samples = [high_temp_sampler.sample(logits.clone()) for _ in range(100)]
+        high_temp_samples = [
+            high_temp_sampler.sample(logits.clone()) for _ in range(100)
+        ]
 
         # Low temp should strongly prefer index 1
         low_temp_max_freq = low_temp_samples.count(1) / 100
-        assert low_temp_max_freq > 0.9, f"Low temp should prefer max, got {low_temp_max_freq}"
+        assert low_temp_max_freq > 0.9, (
+            f"Low temp should prefer max, got {low_temp_max_freq}"
+        )
 
         # High temp should be more uniform (index 1 less dominant)
         high_temp_max_freq = high_temp_samples.count(1) / 100
-        assert high_temp_max_freq < 0.9, f"High temp should be more uniform, got {high_temp_max_freq}"
+        assert high_temp_max_freq < 0.9, (
+            f"High temp should be more uniform, got {high_temp_max_freq}"
+        )
 
 
 class TestTopPSampler:
@@ -118,7 +124,9 @@ class TestTopPSampler:
         samples = [sampler.sample(logits.clone()) for _ in range(50)]
 
         # With such a dominant token, p=0.5 should mostly/always pick index 0
-        assert samples.count(0) >= 45, f"Expected mostly index 0, got {samples.count(0)}/50"
+        assert samples.count(0) >= 45, (
+            f"Expected mostly index 0, got {samples.count(0)}/50"
+        )
 
     def test_p_equals_one_allows_all_tokens(self) -> None:
         """p=1.0 should allow sampling from all tokens."""
@@ -141,6 +149,15 @@ class TestTopPSampler:
         # Should not raise and should return a valid index
         result = sampler.sample(logits)
         assert 0 <= result < 3
+
+    def test_negative_p_disables_nucleus_filter(self) -> None:
+        """p < 0 should disable nucleus filtering (match Rust behavior)."""
+        torch.manual_seed(0)
+        sampler = TopPSampler(p=-0.5, temperature=1.0)
+        logits = torch.tensor([1.0, 1.0, 1.0, 1.0])
+
+        samples = [sampler.sample(logits.clone()) for _ in range(100)]
+        assert len(set(samples)) > 1, "Expected variety when nucleus filter is disabled"
 
     def test_temperature_scaling(self) -> None:
         """Temperature should scale logits before nucleus sampling."""
@@ -203,6 +220,19 @@ class TestSampleNextToken:
         # With p=0.5, should mostly sample index 0 (which has >50% mass)
         assert samples.count(0) >= 45
 
+    def test_top_p_keeps_first_token_above_threshold(self) -> None:
+        """top_p should keep the first token above threshold (match Rust behavior)."""
+        torch.manual_seed(0)
+        # Designed so p=0.5 crosses after token 1 (token 0 prob < 0.5).
+        logits = torch.tensor([0.5, 0.0, -0.1, -0.2])
+
+        samples = [
+            sample_next_token(logits.clone(), temperature=1.0, top_k=0, top_p=0.5)
+            for _ in range(200)
+        ]
+
+        assert 1 in set(samples)
+
     def test_top_k_zero_means_no_k_restriction(self) -> None:
         """top_k=0 should not apply k restriction."""
         torch.manual_seed(0)
@@ -235,6 +265,18 @@ class TestSampleNextToken:
 
         samples = [
             sample_next_token(logits.clone(), temperature=1.0, top_k=0, top_p=1.0)
+            for _ in range(100)
+        ]
+
+        assert len(set(samples)) > 1
+
+    def test_top_p_negative_means_no_restriction(self) -> None:
+        """top_p < 0 should disable nucleus restriction (match Rust behavior)."""
+        torch.manual_seed(0)
+        logits = torch.tensor([1.0, 1.0, 1.0, 1.0])
+
+        samples = [
+            sample_next_token(logits.clone(), temperature=1.0, top_k=0, top_p=-0.5)
             for _ in range(100)
         ]
 
@@ -276,7 +318,8 @@ class TestSampleNextToken:
         assert low_temp.count(1) > 90
 
         # High temperature should be more uniform
-        assert len(set(high_temp)) >= 1  # At minimum, should work
+        assert high_temp.count(1) < 80
+        assert len(set(high_temp)) > 1
 
 
 class TestSamplerProtocol:

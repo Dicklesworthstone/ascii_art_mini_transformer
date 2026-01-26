@@ -31,20 +31,20 @@ class AsciiGPTConfig:
     """Configuration for the ASCII art GPT model."""
 
     # Model architecture
-    block_size: int = 2048      # Maximum sequence length
-    vocab_size: int = 107       # Character-level (12 special + 95 printable)
-    n_layer: int = 6            # Number of transformer blocks
-    n_head: int = 6             # Number of attention heads
-    n_embd: int = 384           # Embedding dimension
-    dropout: float = 0.1        # Dropout probability
+    block_size: int = 2048  # Maximum sequence length
+    vocab_size: int = 107  # Character-level (12 special + 95 printable)
+    n_layer: int = 6  # Number of transformer blocks
+    n_head: int = 6  # Number of attention heads
+    n_embd: int = 384  # Embedding dimension
+    dropout: float = 0.1  # Dropout probability
 
     # 2D positional encoding
-    max_rows: int = 100         # Maximum supported rows
-    max_cols: int = 200         # Maximum supported columns
-    newline_token_id: int = 7   # Token ID for newline
+    max_rows: int = 100  # Maximum supported rows
+    max_cols: int = 200  # Maximum supported columns
+    newline_token_id: int = 7  # Token ID for newline
 
     # Weight initialization
-    init_std: float = 0.02      # Standard deviation for weight init
+    init_std: float = 0.02  # Standard deviation for weight init
 
     # Special tokens
     pad_token_id: int = 0
@@ -75,9 +75,9 @@ class AsciiGPTConfig:
         # - Attention: 4 * n_embd * n_embd (qkv + out projections)
         # - MLP: n_embd * 4 * n_embd * 2 (up + down projections)
         per_block = (
-            4 * self.n_embd +  # LayerNorms
-            4 * self.n_embd * self.n_embd +  # Attention
-            2 * self.n_embd * 4 * self.n_embd  # MLP
+            4 * self.n_embd  # LayerNorms
+            + 4 * self.n_embd * self.n_embd  # Attention
+            + 2 * self.n_embd * 4 * self.n_embd  # MLP
         )
         blocks = self.n_layer * per_block
 
@@ -115,8 +115,9 @@ class CausalSelfAttention(nn.Module):
         # Causal mask
         self.register_buffer(
             "mask",
-            torch.tril(torch.ones(config.block_size, config.block_size))
-            .view(1, 1, config.block_size, config.block_size)
+            torch.tril(torch.ones(config.block_size, config.block_size)).view(
+                1, 1, config.block_size, config.block_size
+            ),
         )
 
     def forward(
@@ -169,13 +170,13 @@ class CausalSelfAttention(nn.Module):
         att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(self.head_dim))
 
         # Apply causal mask
-        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float('-inf'))
+        att = att.masked_fill(self.mask[:, :, :T, :T] == 0, float("-inf"))
 
         # Apply padding mask if provided
         if attention_mask is not None:
             # attention_mask: (B, T) -> (B, 1, 1, T)
             padding_mask = attention_mask.unsqueeze(1).unsqueeze(2)
-            att = att.masked_fill(padding_mask == 0, float('-inf'))
+            att = att.masked_fill(padding_mask == 0, float("-inf"))
 
         # Softmax and dropout
         att = F.softmax(att, dim=-1)
@@ -267,9 +268,9 @@ class AsciiGPT(nn.Module):
         self.drop = nn.Dropout(config.dropout)
 
         # Transformer blocks
-        self.blocks = nn.ModuleList([
-            TransformerBlock(config) for _ in range(config.n_layer)
-        ])
+        self.blocks = nn.ModuleList(
+            [TransformerBlock(config) for _ in range(config.n_layer)]
+        )
 
         # Final layer norm
         self.ln_f = nn.LayerNorm(config.n_embd)
@@ -319,7 +320,9 @@ class AsciiGPT(nn.Module):
         """
         B, T = input_ids.size()
 
-        assert T <= self.config.block_size, f"Sequence length {T} exceeds block_size {self.config.block_size}"
+        assert T <= self.config.block_size, (
+            f"Sequence length {T} exceeds block_size {self.config.block_size}"
+        )
 
         # Token embeddings
         tok_emb = self.token_embedding(input_ids)  # (B, T, n_embd)
@@ -389,37 +392,48 @@ class AsciiGPT(nn.Module):
             # Crop to block size if needed
             idx_cond = input_ids
             if input_ids.size(1) > self.config.block_size:
-                idx_cond = input_ids[:, -self.config.block_size:]
+                idx_cond = input_ids[:, -self.config.block_size :]
 
             # Get logits for the last position
             logits, _ = self(idx_cond)
-            logits = logits[:, -1, :] / temperature
+            logits = logits[:, -1, :]
 
-            # Optional top-k filtering
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = float('-inf')
+            # Greedy decode when temperature is 0 (or negative).
+            if temperature <= 0:
+                next_token = torch.argmax(logits, dim=-1, keepdim=True)
+            else:
+                logits = logits / float(temperature)
 
-            # Optional top-p (nucleus) filtering
-            if top_p is not None:
-                sorted_logits, sorted_indices = torch.sort(logits, descending=True)
-                cumulative_probs = torch.cumsum(F.softmax(sorted_logits, dim=-1), dim=-1)
+                # Optional top-k filtering (k <= 0 disables).
+                if top_k is not None and top_k > 0:
+                    v, _ = torch.topk(logits, min(int(top_k), logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = float("-inf")
 
-                # Remove tokens with cumulative probability above threshold
-                sorted_indices_to_remove = cumulative_probs > top_p
-                # Keep the first token above threshold
-                sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[:, :-1].clone()
-                sorted_indices_to_remove[:, 0] = False
+                # Optional top-p (nucleus) filtering.
+                # Match Rust behavior: enable only for 0 <= top_p < 1.
+                if top_p is not None and 0.0 <= float(top_p) < 1.0:
+                    sorted_logits, sorted_indices = torch.sort(logits, descending=True)
+                    cumulative_probs = torch.cumsum(
+                        F.softmax(sorted_logits, dim=-1), dim=-1
+                    )
 
-                # Scatter back
-                indices_to_remove = sorted_indices_to_remove.scatter(
-                    1, sorted_indices, sorted_indices_to_remove
-                )
-                logits[indices_to_remove] = float('-inf')
+                    # Remove tokens with cumulative probability above threshold.
+                    sorted_indices_to_remove = cumulative_probs > float(top_p)
+                    # Keep the first token above threshold.
+                    sorted_indices_to_remove[:, 1:] = sorted_indices_to_remove[
+                        :, :-1
+                    ].clone()
+                    sorted_indices_to_remove[:, 0] = False
 
-            # Sample from distribution
-            probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
+                    # Scatter back to original indices.
+                    indices_to_remove = sorted_indices_to_remove.scatter(
+                        1, sorted_indices, sorted_indices_to_remove
+                    )
+                    logits[indices_to_remove] = float("-inf")
+
+                # Sample from distribution.
+                probs = F.softmax(logits, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
 
             # Append to sequence
             input_ids = torch.cat([input_ids, next_token], dim=1)
@@ -441,9 +455,7 @@ class AsciiGPT(nn.Module):
         if non_embedding:
             n_params -= self.token_embedding.weight.numel()
             # Note: pos_encoding also has parameters
-            n_params -= sum(
-                p.numel() for p in self.pos_encoding.parameters()
-            )
+            n_params -= sum(p.numel() for p in self.pos_encoding.parameters())
         return n_params
 
 
@@ -493,7 +505,7 @@ def get_large_config() -> AsciiGPTConfig:
     )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Quick test
     print("Testing AsciiGPT Model")
     print("=" * 50)

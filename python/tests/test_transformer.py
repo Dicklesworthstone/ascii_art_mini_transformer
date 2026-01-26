@@ -327,10 +327,23 @@ class TestGeneration:
         assert gen_low.shape[1] > 0
         assert gen_high.shape[1] > 0
 
+    def test_temperature_zero_is_greedy_and_deterministic(self, model, config):
+        """temperature=0 should not divide by zero and should be deterministic (greedy)."""
+        prompt = torch.tensor([[config.bos_token_id]])
+        gen1 = model.generate(prompt, max_new_tokens=10, temperature=0.0)
+        gen2 = model.generate(prompt, max_new_tokens=10, temperature=0.0)
+        assert torch.equal(gen1, gen2)
+
     def test_top_k_sampling(self, model, config):
         """Top-k sampling should limit token choices."""
         prompt = torch.tensor([[config.bos_token_id]])
         generated = model.generate(prompt, max_new_tokens=10, top_k=5)
+        assert generated.shape[1] > prompt.shape[1]
+
+    def test_top_k_zero_disables_filtering(self, model, config):
+        """top_k=0 should not error and should behave like no top-k filtering."""
+        prompt = torch.tensor([[config.bos_token_id]])
+        generated = model.generate(prompt, max_new_tokens=10, top_k=0)
         assert generated.shape[1] > prompt.shape[1]
 
     def test_top_p_sampling(self, model, config):
