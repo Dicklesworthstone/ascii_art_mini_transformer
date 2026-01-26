@@ -98,6 +98,18 @@ pub fn apply_constraints_to_logits(
         }
     }
 
+    // Prevent creating an extra row beyond `max_lines`. On the last allowed line, disallow
+    // newline. If we also hit the width boundary on that last line, we force EOS below.
+    if decoder.max_lines > 0 {
+        let last_allowed_line = decoder.max_lines.saturating_sub(1);
+        if decoder.current_line >= last_allowed_line {
+            let nl = tokenizer.newline_id() as usize;
+            if let Some(v) = logits.get_mut(nl) {
+                *v = f32::NEG_INFINITY;
+            }
+        }
+    }
+
     // If we've hit max width on the last allowed line, end instead of emitting a newline
     // that would create an extra empty row.
     let last_allowed_line = decoder.max_lines.saturating_sub(1);
@@ -278,6 +290,30 @@ mod tests {
             logits.iter().filter(|v| v.is_finite()).count(),
             1,
             "only EOS should be allowed at last-line width boundary"
+        );
+    }
+
+    #[test]
+    fn test_newline_disallowed_on_last_allowed_line_even_if_width_not_hit() {
+        let tok = AsciiTokenizer::new();
+        let mut d = ConstrainedDecoder::new(40, 2, 100);
+        // Move to the last allowed line (line index 1) without hitting max width.
+        d.update(tok.newline_id(), tok);
+        assert_eq!(d.current_line, 1);
+        assert!(!d.should_force_newline());
+
+        let mut logits = vec![0.0_f32; tok.vocab_size() as usize];
+        apply_constraints_to_logits(&mut logits, &d, tok);
+
+        let eos = tok.eos_id() as usize;
+        let nl = tok.newline_id() as usize;
+        assert!(
+            logits[eos].is_finite(),
+            "EOS should be allowed on last line"
+        );
+        assert!(
+            !logits[nl].is_finite(),
+            "newline should be disallowed on last allowed line"
         );
     }
 

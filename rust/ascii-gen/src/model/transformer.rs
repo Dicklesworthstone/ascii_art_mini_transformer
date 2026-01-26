@@ -3,7 +3,7 @@
 //! A decoder-only transformer for ASCII art generation.
 //! Matches the Python AsciiGPT implementation.
 
-use candle_core::{DType, Device, Result, Tensor};
+use candle_core::{D, DType, Device, Result, Tensor};
 use candle_nn::{LayerNorm, Linear, Module, VarBuilder};
 
 use super::attention::create_causal_mask;
@@ -29,6 +29,10 @@ pub struct AsciiGPT {
     ln_f: LayerNorm,
     /// Language model head (uses tied weights from token_embedding)
     lm_head: Linear,
+    /// Cached full causal attention mask (1, 1, block_size, block_size).
+    ///
+    /// Avoids re-allocating an O(T^2) mask on every forward pass (critical for generation loops).
+    causal_mask: Tensor,
     /// Model configuration
     config: ModelConfig,
     /// Device for tensor operations
@@ -85,12 +89,16 @@ impl AsciiGPT {
             Linear::new(token_embedding.weights().clone(), None)
         };
 
+        // Precompute the full causal mask once and slice it per forward pass.
+        let causal_mask = create_causal_mask(config.block_size, &device)?;
+
         Ok(Self {
             token_embedding,
             pos_encoding,
             blocks,
             ln_f,
             lm_head,
+            causal_mask,
             config,
             device,
         })
@@ -125,8 +133,11 @@ impl AsciiGPT {
         // Combine embeddings
         let mut x = (tok_emb + pos_emb)?;
 
-        // Create causal mask
-        let mask = create_causal_mask(t, &self.device)?;
+        // Slice cached causal mask to current seq_len.
+        let mask = self
+            .causal_mask
+            .narrow(D::Minus2, 0, t)?
+            .narrow(D::Minus1, 0, t)?;
 
         // Apply transformer blocks
         for block in &self.blocks {
