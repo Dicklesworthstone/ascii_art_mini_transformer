@@ -23,24 +23,22 @@ if TORCH_AVAILABLE:
         create_positional_encoding,
     )
 else:
-    # Only import the non-torch function for basic testing
-    import sys
-
-    sys.path.insert(0, ".")
-    exec("""
-def compute_2d_positions_simple(text, newline_char='\\n'):
-    row, col = 0, 0
-    rows, cols = [], []
-    for char in text:
-        rows.append(row)
-        cols.append(col)
-        if char == newline_char:
-            row += 1
-            col = 0
-        else:
-            col += 1
-    return rows, cols
-""")
+    # Torch isn't available; keep a small local implementation for basic testing.
+    def compute_2d_positions_simple(
+        text: str, newline_char: str = "\n"
+    ) -> tuple[list[int], list[int]]:
+        row, col = 0, 0
+        rows: list[int] = []
+        cols: list[int] = []
+        for char in text:
+            rows.append(row)
+            cols.append(col)
+            if char == newline_char:
+                row += 1
+                col = 0
+            else:
+                col += 1
+        return rows, cols
 
 
 class TestSimplePositionComputation:
