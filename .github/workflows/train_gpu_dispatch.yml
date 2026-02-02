@@ -104,37 +104,39 @@ jobs:
             bash tests/e2e/env_snapshot.sh "$GITHUB_WORKSPACE" "${PYTHON_BIN}" || true
             echo
             "${PYTHON_BIN}" - <<'PY'
-from __future__ import annotations
+          from __future__ import annotations
 
-import sys
+          import sys
 
-try:
-    import torch
-except Exception as exc:  # pragma: no cover
-    raise SystemExit(f"ERROR: failed to import torch ({exc.__class__.__name__}: {exc})")
+          try:
+              import torch
+          except Exception as exc:  # pragma: no cover
+              raise SystemExit(
+                  f"ERROR: failed to import torch ({exc.__class__.__name__}: {exc})"
+              )
 
-try:
-    import safetensors  # type: ignore
-except Exception as exc:  # pragma: no cover
-    raise SystemExit(
-        f"ERROR: failed to import safetensors ({exc.__class__.__name__}: {exc})"
-    )
+          try:
+              import safetensors  # type: ignore
+          except Exception as exc:  # pragma: no cover
+              raise SystemExit(
+                  f"ERROR: failed to import safetensors ({exc.__class__.__name__}: {exc})"
+              )
 
-print(f"torch_version: {torch.__version__}")
-print(f"safetensors_version: {getattr(safetensors, '__version__', 'unknown')}")
-print(f"cuda_available: {torch.cuda.is_available()}")
-print(f"cuda_device_count: {torch.cuda.device_count()}")
-if torch.cuda.is_available():
-    try:
-        print(f"cuda_bf16_supported: {torch.cuda.is_bf16_supported()}")
-    except Exception as exc:  # pragma: no cover
-        print(f"cuda_bf16_supported: (error: {exc.__class__.__name__})")
-else:
-    sys.exit(
-        "ERROR: torch.cuda.is_available() is False. "
-        "This workflow must run on a machine with a CUDA-enabled torch install."
-    )
-PY
+          print(f"torch_version: {torch.__version__}")
+          print(f"safetensors_version: {getattr(safetensors, '__version__', 'unknown')}")
+          print(f"cuda_available: {torch.cuda.is_available()}")
+          print(f"cuda_device_count: {torch.cuda.device_count()}")
+          if torch.cuda.is_available():
+              try:
+                  print(f"cuda_bf16_supported: {torch.cuda.is_bf16_supported()}")
+              except Exception as exc:  # pragma: no cover
+                  print(f"cuda_bf16_supported: (error: {exc.__class__.__name__})")
+          else:
+              sys.exit(
+                  "ERROR: torch.cuda.is_available() is False. "
+                  "This workflow must run on a machine with a CUDA-enabled torch install."
+              )
+          PY
           } 2>&1 | tee -a "$LOG_FILE"
 
       - name: Verify DB path
