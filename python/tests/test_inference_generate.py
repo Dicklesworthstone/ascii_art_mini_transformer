@@ -116,6 +116,26 @@ def test_generate_truncates_to_block_size() -> None:
     assert model.seen_inputs[0][0] == [6, 7, 8, 9]
 
 
+def test_generate_max_tokens_zero_disables_char_cap_but_still_generates() -> None:
+    tok = _TinyTokenizer(prompt_tokens=[0], vocab_size=16)
+    model = _RecordingModel(vocab_size=tok.vocab_size, next_token_id=3, block_size=32)
+
+    out = generate(
+        model,
+        tok,
+        "ignored",
+        width=1,
+        height=1,
+        temperature=0.0,
+        top_k=0,
+        top_p=1.0,
+        max_tokens=0,
+        seed=0,
+    )
+
+    assert out == "A"
+
+
 def test_generate_golden_tests_emits_valid_json(tmp_path: Path) -> None:
     tok = _TinyTokenizer(prompt_tokens=[0, 4, 5, 6], vocab_size=16)
     model = _RecordingModel(vocab_size=tok.vocab_size, next_token_id=4, block_size=32)

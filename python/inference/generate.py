@@ -63,6 +63,12 @@ def generate(
     Generate ASCII art from a text prompt.
 
     This runs an explicit decoding loop so we can apply constraints per-step.
+
+    Notes:
+    - `max_tokens` is a hard cap on emitted output tokens (characters) when > 0.
+      When `max_tokens <= 0`, the cap is disabled but the loop is still bounded
+      by a width/height-derived maximum (or a small fallback) to avoid infinite
+      generation if EOS is never sampled.
     """
     try:
         import torch
@@ -86,12 +92,25 @@ def generate(
 
     input_ids = torch.tensor([list(input_token_ids)], dtype=torch.long, device=dev)
 
+    # In Rust we treat max_chars=0 as "disabled" while still bounding the decoding loop.
+    # Mirror that here: max_tokens<=0 disables the hard char cap, but we still need a
+    # deterministic outer-loop bound to prevent infinite generation when EOS never appears.
+    max_tokens_int = int(max_tokens)
+    if max_tokens_int > 0:
+        max_steps = max_tokens_int
+    elif width > 0 and height > 0:
+        # Max visible output implied by width/height limits (including inter-line newlines).
+        max_steps = int(width) * int(height) + max(int(height) - 1, 0)
+    else:
+        # Fallback: keep bounded even when constraints are disabled/missing.
+        max_steps = 500
+
     decoder = ConstrainedDecoder(
-        max_width=width, max_height=height, max_tokens=max_tokens
+        max_width=width, max_height=height, max_tokens=max_tokens_int
     )
     generated: list[int] = []
 
-    for _ in range(max_tokens):
+    for _ in range(max_steps):
         # Keep within the model context window.
         if hasattr(model, "config") and hasattr(model.config, "block_size"):
             block_size = int(model.config.block_size)
