@@ -14,8 +14,6 @@ on:
       preset:
         description: "Model size preset"
         required: true
-        type: choice
-        options: [small, medium, large]
         default: medium
       max_iters:
         description: "Max training iterations"
@@ -24,8 +22,6 @@ on:
       dtype:
         description: "Training dtype"
         required: true
-        type: choice
-        options: [float32, float16, bfloat16]
         default: bfloat16
       checkpoint_dir:
         description: "Where to write checkpoints (persistent path recommended for resume)"
@@ -42,14 +38,10 @@ on:
       export_dtype:
         description: "Export dtype (Rust expects float safetensors)"
         required: true
-        type: choice
-        options: [float32, float16, bfloat16]
         default: float32
       quantize:
         description: "Optional weight-only quantized exports"
         required: true
-        type: choice
-        options: [none, int8, int4, both]
         default: none
       batch_size:
         description: "Per-step batch size"
@@ -98,18 +90,15 @@ on:
       compile:
         description: "Enable torch.compile (PyTorch 2.x; may improve throughput)"
         required: true
-        type: boolean
-        default: false
+        default: "false"
       run_rust_validation:
         description: "Run Rust CLI inference using the exported model"
         required: true
-        type: boolean
-        default: true
+        default: "true"
       upload_artifacts:
         description: "Upload run logs + exported model as a workflow artifact"
         required: true
-        type: boolean
-        default: true
+        default: "true"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -146,14 +135,14 @@ jobs:
           mkdir -p "$RUN_DIR"
           echo "RUN_DIR=$RUN_DIR" >> "$GITHUB_ENV"
           echo "LOG_FILE=$RUN_DIR/train_gpu_${TS}.log" >> "$GITHUB_ENV"
-          echo "PYTHON_BIN=${{ inputs.python_bin }}" >> "$GITHUB_ENV"
-          echo "DB_PATH=${{ inputs.db_path }}" >> "$GITHUB_ENV"
-          echo "CKPT_DIR=${{ inputs.checkpoint_dir }}" >> "$GITHUB_ENV"
-          echo "EXPORT_DIR=${{ inputs.export_dir }}" >> "$GITHUB_ENV"
+          echo "PYTHON_BIN=${{ github.event.inputs.python_bin }}" >> "$GITHUB_ENV"
+          echo "DB_PATH=${{ github.event.inputs.db_path }}" >> "$GITHUB_ENV"
+          echo "CKPT_DIR=${{ github.event.inputs.checkpoint_dir }}" >> "$GITHUB_ENV"
+          echo "EXPORT_DIR=${{ github.event.inputs.export_dir }}" >> "$GITHUB_ENV"
           echo "Run dir: $RUN_DIR" >> "$GITHUB_STEP_SUMMARY"
-          echo "DB path: \`${{ inputs.db_path }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Checkpoint dir: \`${{ inputs.checkpoint_dir }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "Export dir: \`${{ inputs.export_dir }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "DB path: \`${{ github.event.inputs.db_path }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Checkpoint dir: \`${{ github.event.inputs.checkpoint_dir }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Export dir: \`${{ github.event.inputs.export_dir }}\`" >> "$GITHUB_STEP_SUMMARY"
 
       - name: GPU + env snapshot
         shell: bash
@@ -161,22 +150,22 @@ jobs:
           set -euo pipefail
           {
             echo "=== Inputs ==="
-            echo "preset=${{ inputs.preset }}"
-            echo "max_iters=${{ inputs.max_iters }}"
-            echo "dtype=${{ inputs.dtype }}"
-            echo "batch_size=${{ inputs.batch_size }}"
-            echo "gradient_accumulation_steps=${{ inputs.gradient_accumulation_steps }}"
-            echo "learning_rate=${{ inputs.learning_rate }}"
-            echo "warmup_iters=${{ inputs.warmup_iters }}"
-            echo "lr_decay_iters=${{ inputs.lr_decay_iters }}"
-            echo "min_lr=${{ inputs.min_lr }}"
-            echo "eval_interval=${{ inputs.eval_interval }}"
-            echo "eval_iters=${{ inputs.eval_iters }}"
-            echo "save_interval=${{ inputs.save_interval }}"
-            echo "log_interval=${{ inputs.log_interval }}"
-            echo "num_workers=${{ inputs.num_workers }}"
-            echo "compile=${{ inputs.compile }}"
-            echo "quantize=${{ inputs.quantize }}"
+            echo "preset=${{ github.event.inputs.preset }}"
+            echo "max_iters=${{ github.event.inputs.max_iters }}"
+            echo "dtype=${{ github.event.inputs.dtype }}"
+            echo "batch_size=${{ github.event.inputs.batch_size }}"
+            echo "gradient_accumulation_steps=${{ github.event.inputs.gradient_accumulation_steps }}"
+            echo "learning_rate=${{ github.event.inputs.learning_rate }}"
+            echo "warmup_iters=${{ github.event.inputs.warmup_iters }}"
+            echo "lr_decay_iters=${{ github.event.inputs.lr_decay_iters }}"
+            echo "min_lr=${{ github.event.inputs.min_lr }}"
+            echo "eval_interval=${{ github.event.inputs.eval_interval }}"
+            echo "eval_iters=${{ github.event.inputs.eval_iters }}"
+            echo "save_interval=${{ github.event.inputs.save_interval }}"
+            echo "log_interval=${{ github.event.inputs.log_interval }}"
+            echo "num_workers=${{ github.event.inputs.num_workers }}"
+            echo "compile=${{ github.event.inputs.compile }}"
+            echo "quantize=${{ github.event.inputs.quantize }}"
             echo
             echo "=== nvidia-smi ==="
             if command -v nvidia-smi >/dev/null 2>&1; then
@@ -240,28 +229,28 @@ PY
           TRAIN_ARGS=(
             -m train.train
             --db-path "$DB_PATH"
-            --preset "${{ inputs.preset }}"
+            --preset "${{ github.event.inputs.preset }}"
             --device cuda
-            --dtype "${{ inputs.dtype }}"
+            --dtype "${{ github.event.inputs.dtype }}"
             --checkpoint-dir "$CKPT_DIR"
-            --max-iters "${{ inputs.max_iters }}"
-            --batch-size "${{ inputs.batch_size }}"
-            --gradient-accumulation-steps "${{ inputs.gradient_accumulation_steps }}"
-            --learning-rate "${{ inputs.learning_rate }}"
-            --warmup-iters "${{ inputs.warmup_iters }}"
-            --lr-decay-iters "${{ inputs.lr_decay_iters }}"
-            --min-lr "${{ inputs.min_lr }}"
-            --eval-interval "${{ inputs.eval_interval }}"
-            --eval-iters "${{ inputs.eval_iters }}"
-            --save-interval "${{ inputs.save_interval }}"
-            --log-interval "${{ inputs.log_interval }}"
-            --num-workers "${{ inputs.num_workers }}"
+            --max-iters "${{ github.event.inputs.max_iters }}"
+            --batch-size "${{ github.event.inputs.batch_size }}"
+            --gradient-accumulation-steps "${{ github.event.inputs.gradient_accumulation_steps }}"
+            --learning-rate "${{ github.event.inputs.learning_rate }}"
+            --warmup-iters "${{ github.event.inputs.warmup_iters }}"
+            --lr-decay-iters "${{ github.event.inputs.lr_decay_iters }}"
+            --min-lr "${{ github.event.inputs.min_lr }}"
+            --eval-interval "${{ github.event.inputs.eval_interval }}"
+            --eval-iters "${{ github.event.inputs.eval_iters }}"
+            --save-interval "${{ github.event.inputs.save_interval }}"
+            --log-interval "${{ github.event.inputs.log_interval }}"
+            --num-workers "${{ github.event.inputs.num_workers }}"
           )
 
-          if [[ -n "${{ inputs.resume_from }}" ]]; then
-            TRAIN_ARGS+=(--resume-from "${{ inputs.resume_from }}")
+          if [[ -n "${{ github.event.inputs.resume_from }}" ]]; then
+            TRAIN_ARGS+=(--resume-from "${{ github.event.inputs.resume_from }}")
           fi
-          if [[ "${{ inputs.compile }}" == "true" ]]; then
+          if [[ "${{ github.event.inputs.compile }}" == "true" ]]; then
             TRAIN_ARGS+=(--compile)
           fi
 
@@ -282,8 +271,8 @@ PY
             -m train.export
             --checkpoint "$FINAL_CKPT"
             --output-dir "$EXPORT_DIR"
-            --dtype "${{ inputs.export_dtype }}"
-            --quantize "${{ inputs.quantize }}"
+            --dtype "${{ github.event.inputs.export_dtype }}"
+            --quantize "${{ github.event.inputs.quantize }}"
           )
           echo "Running: ${PYTHON_BIN} ${EXPORT_ARGS[*]}" | tee -a "$LOG_FILE"
           "${PYTHON_BIN}" "${EXPORT_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
@@ -304,20 +293,20 @@ PY
             --seed 0 2>&1 | tee -a "$LOG_FILE"
 
       - name: Install Rust toolchain (for validation)
-        if: ${{ inputs.run_rust_validation }}
+        if: ${{ github.event.inputs.run_rust_validation == 'true' }}
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
         with:
           toolchain: nightly-2026-01-20
 
       - name: Rust cache (for validation)
-        if: ${{ inputs.run_rust_validation }}
+        if: ${{ github.event.inputs.run_rust_validation == 'true' }}
         uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
         with:
           workspaces: |
             rust/ascii-gen -> target
 
       - name: Rust inference validation
-        if: ${{ inputs.run_rust_validation }}
+        if: ${{ github.event.inputs.run_rust_validation == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -335,7 +324,7 @@ PY
             "cat" 2>&1 | tee -a "$LOG_FILE"
 
       - name: Upload training artifacts
-        if: ${{ inputs.upload_artifacts }}
+        if: ${{ github.event.inputs.upload_artifacts == 'true' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: train-gpu-${{ github.run_id }}
