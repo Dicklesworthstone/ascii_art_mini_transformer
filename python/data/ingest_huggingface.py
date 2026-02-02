@@ -15,9 +15,11 @@ Features:
 - Comprehensive logging
 """
 
+import itertools
 import json
 import logging
 import sqlite3
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -28,20 +30,31 @@ from datasets import load_dataset
 from huggingface_hub import hf_hub_download
 from tqdm import tqdm
 
-from data.db import connect, initialize, insert_ascii_art
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "python"))
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("ingestion.log"),
-    ],
-)
+from data.db import connect, initialize, insert_ascii_art  # noqa: E402
+
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
+
+
+def _configure_logging(*, verbose: bool) -> None:
+    # Avoid configuring logging on import; configure only when running as a CLI.
+    level = logging.DEBUG if verbose else logging.INFO
+    root = logging.getLogger()
+    if root.handlers:
+        root.setLevel(level)
+        return
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("ingestion.log"),
+        ],
+    )
 
 
 def retry_on_lock(
@@ -700,7 +713,6 @@ def ingest_dataset(
                     and (line_idx - last_checkpoint_idx) >= checkpoint_every
                 ):
                     retry_on_lock(conn.commit)
-                    retry_on_lock(lambda: conn.execute("BEGIN"))
                     tracker.update_progress(full_name, line_idx)
                     last_checkpoint_idx = line_idx
                     progress_bar.set_postfix(
@@ -722,6 +734,7 @@ def ingest_dataset(
                             tracker.update_progress(full_name, line_idx)
                             progress_bar.close()
                             return stats
+                    retry_on_lock(lambda: conn.execute("BEGIN"))
 
             progress_bar.close()
 
@@ -756,16 +769,18 @@ def ingest_dataset(
                 pass
 
         progress_bar = tqdm(
-            enumerate(ds),
+            enumerate(
+                itertools.islice(ds, start_row, None) if start_row > 0 else ds,
+                start=start_row,
+            ),
             total=total_rows,
             desc=f"Ingesting {dataset_name}",
             initial=start_row,
         )
 
+        last_progress_idx = start_row
         for idx, row in progress_bar:
-            # Skip to resume point
-            if idx < start_row:
-                continue
+            last_progress_idx = idx
 
             stats.total_processed += 1
 
@@ -809,19 +824,40 @@ def ingest_dataset(
                 if stats.errors <= 10:  # Log first 10 errors
                     logger.error(f"Insert error at row {idx}: {e}")
 
+            if max_inserts is not None and stats.inserted >= max_inserts:
+                logger.info(f"Reached max_inserts={max_inserts}, stopping early.")
+                retry_on_lock(conn.commit)
+                tracker.update_progress(full_name, idx)
+                progress_bar.close()
+                return stats
+
             # Checkpoint and commit periodically
             if idx > 0 and idx % checkpoint_every == 0:
                 retry_on_lock(conn.commit)
-                retry_on_lock(lambda: conn.execute("BEGIN"))
                 tracker.update_progress(full_name, idx)
                 progress_bar.set_postfix(
                     inserted=stats.inserted,
                     dups=stats.duplicates,
                     skip=stats.skipped_invalid,
                 )
+                if stop_at_total_rows is not None:
+                    total = retry_on_lock(
+                        lambda: conn.execute(
+                            "SELECT COUNT(*) FROM ascii_art"
+                        ).fetchone()[0]
+                    )
+                    if total >= stop_at_total_rows:
+                        logger.info(
+                            f"Reached stop_at_total_rows={stop_at_total_rows} (total={total}), stopping early."
+                        )
+                        tracker.update_progress(full_name, idx)
+                        progress_bar.close()
+                        return stats
+                retry_on_lock(lambda: conn.execute("BEGIN"))
 
         # Final commit and mark as completed
         retry_on_lock(conn.commit)
+        tracker.update_progress(full_name, last_progress_idx)
         tracker.mark_completed(full_name, stats)
         logger.info(
             f"Completed {full_name}: {stats.total_processed} processed, "
@@ -831,6 +867,10 @@ def ingest_dataset(
 
     except Exception as e:
         logger.error(f"Error ingesting {full_name}: {e}")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
         tracker.save()  # Save progress even on failure
         raise
 
@@ -950,6 +990,12 @@ def main() -> None:
         description="Ingest HuggingFace ASCII art datasets"
     )
     parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose logging",
+    )
+    parser.add_argument(
         "--db-path",
         default="data/ascii_art.db",
         help="Path to SQLite database (default: data/ascii_art.db)",
@@ -1002,6 +1048,8 @@ def main() -> None:
         help="For Csplk ingestion: treat each file as a single block (no double-blank splitting)",
     )
     args = parser.parse_args()
+
+    _configure_logging(verbose=bool(args.verbose))
 
     if args.dataset:
         # Ingest single dataset

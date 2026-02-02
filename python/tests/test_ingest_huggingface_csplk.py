@@ -269,3 +269,132 @@ def test_validate_art_rejects_and_accepts_expected_cases() -> None:
 
     too_many = "\n".join(["x"] * 1001)
     assert ih.validate_art(too_many)[1] == "too_many_lines"
+
+
+def test_ingest_dataset_non_csplk_respects_max_inserts_and_closes_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tqdm import tqdm as real_tqdm
+
+    def quiet_tqdm(*args, **kwargs):
+        kwargs.setdefault("disable", True)
+        return real_tqdm(*args, **kwargs)
+
+    rows = [
+        {"text": "aaaaa\naaaaa"},
+        {"text": "bbbbb\nbbbbb"},
+        {"text": "ccccc\nccccc"},
+    ]
+
+    def fake_load_dataset(*_args, **_kwargs):
+        return rows
+
+    monkeypatch.setattr(ih, "tqdm", quiet_tqdm)
+    monkeypatch.setattr(ih, "load_dataset", fake_load_dataset)
+
+    conn = ih.connect(tmp_path / "hf_ingest.sqlite")
+    ih.initialize(conn)
+    tracker = ih.ProgressTracker(progress_file=str(tmp_path / "progress.json"))
+
+    stats = ih.ingest_dataset(
+        conn,
+        "apehex/ascii-art",
+        None,
+        tracker,
+        checkpoint_every=10_000,
+        max_inserts=1,
+        force=True,
+    )
+
+    assert stats.inserted == 1
+    assert conn.in_transaction is False
+    assert conn.execute("SELECT COUNT(*) FROM ascii_art").fetchone()[0] == 1
+    conn.close()
+
+
+def test_ingest_dataset_stop_at_total_rows_does_not_leave_open_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tqdm import tqdm as real_tqdm
+
+    def quiet_tqdm(*args, **kwargs):
+        kwargs.setdefault("disable", True)
+        return real_tqdm(*args, **kwargs)
+
+    # Non-CsPLK dataset path: use start_row_override=1 so the first processed item
+    # has idx=1 and triggers the checkpoint block when checkpoint_every=1.
+    rows = [
+        {"text": " "},  # skipped (empty/whitespace)
+        {"text": "ddddd\nddddd"},
+        {"text": "eeeee\neeeee"},
+    ]
+
+    def fake_load_dataset(*_args, **_kwargs):
+        return rows
+
+    monkeypatch.setattr(ih, "tqdm", quiet_tqdm)
+    monkeypatch.setattr(ih, "load_dataset", fake_load_dataset)
+
+    conn = ih.connect(tmp_path / "hf_ingest_stop.sqlite")
+    ih.initialize(conn)
+    tracker = ih.ProgressTracker(progress_file=str(tmp_path / "progress_stop.json"))
+
+    stats = ih.ingest_dataset(
+        conn,
+        "apehex/ascii-art",
+        None,
+        tracker,
+        checkpoint_every=1,
+        stop_at_total_rows=1,
+        start_row_override=1,
+        force=True,
+    )
+
+    assert stats.inserted == 1
+    assert conn.in_transaction is False
+    conn.close()
+
+
+def test_ingest_dataset_csplk_stop_at_total_rows_does_not_leave_open_transaction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from tqdm import tqdm as real_tqdm
+
+    def quiet_tqdm(*args, **kwargs):
+        kwargs.setdefault("disable", True)
+        return real_tqdm(*args, **kwargs)
+
+    ds = [
+        {"text": "File: animals/cats/cat1.txt"},
+        {"text": "Cute Cats"},
+        {"text": " /\\\\_/\\\\ "},
+        {"text": "( o.o )"},
+        {"text": ""},
+    ]
+
+    def fake_load_dataset(*_args, **_kwargs):
+        return ds
+
+    monkeypatch.setattr(ih, "tqdm", quiet_tqdm)
+    monkeypatch.setattr(ih, "load_dataset", fake_load_dataset)
+
+    conn = ih.connect(tmp_path / "hf_ingest_csplk.sqlite")
+    ih.initialize(conn)
+    tracker = ih.ProgressTracker(progress_file=str(tmp_path / "progress_csplk.json"))
+
+    stats = ih.ingest_dataset(
+        conn,
+        "Csplk/THE.ASCII.ART.EMPORIUM",
+        None,
+        tracker,
+        checkpoint_every=1,
+        stop_at_total_rows=1,
+        force=True,
+    )
+
+    assert stats.inserted == 1
+    assert conn.in_transaction is False
+    conn.close()
