@@ -19,6 +19,9 @@ htmlcov/
 # Rust build artifacts
 target/
 
+# Compiled binaries
+a.out
+
 # Local datasets / artifacts
 data/*.db
 data/*.db-*
