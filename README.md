@@ -9,8 +9,6 @@
          tiny 2D-aware transformer for ASCII art
 ```
 
-[![CI](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/ci.yml/badge.svg)](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/ci.yml)
-[![E2E](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/e2e.yml/badge.svg)](https://github.com/Dicklesworthstone/ascii_art_mini_transformer/actions/workflows/e2e.yml)
 
 </div>
 
